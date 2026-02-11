@@ -32,6 +32,8 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->gro
         Route::get('/', [MediaController::class, 'index']);
         Route::post('/', [MediaController::class, 'store']);
         Route::post('/multiple', [MediaController::class, 'storeMultiple']);
+        // Download route: supports nested paths (e.g. certificates/myfile.pdf)
+        Route::get('/download/{path}', [MediaController::class, 'download'])->where('path', '.*');
         Route::get('/show', [MediaController::class, 'show']);
         Route::post('/update', [MediaController::class, 'update']);
         Route::delete('/', [MediaController::class, 'destroy']);

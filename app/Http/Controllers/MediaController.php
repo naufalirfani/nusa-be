@@ -125,6 +125,24 @@ class MediaController extends Controller
     }
 
     /**
+     * Download a file from public storage.
+     * Accepts a path (supports nested folders) and returns a download response.
+     */
+    public function download($path)
+    {
+        $path = urldecode($path);
+
+        if (!Storage::disk('public')->exists($path)) {
+            Log::info("File not found for download: " . $path);
+            return response()->json([
+                'success' => false,
+                'message' => 'File tidak ditemukan'
+            ], 404);
+        }
+
+        return Storage::disk('public')->download($path);
+    }
+    /**
      * Update the specified resource in storage.
      */
     public function update(Request $request)
