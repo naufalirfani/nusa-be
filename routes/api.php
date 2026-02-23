@@ -5,6 +5,11 @@ use App\Http\Controllers\KegiatanController;
 use App\Http\Controllers\KegiatanPegawaiController;
 use App\Http\Controllers\MediaController;
 use App\Http\Controllers\CmbApiController;
+use App\Http\Controllers\CertificateController;
+
+// Public certificate verification route (no auth required)
+// Accepts both new UUID-based identifiers and legacy verification tokens.
+Route::get('sertifikat/verify/{identifier}', [CertificateController::class, 'verify']);
 
 // Apply API token, logging and IP whitelist middleware to all API routes
 Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->group(function () {

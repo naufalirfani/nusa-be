@@ -49,12 +49,54 @@ class KegiatanPegawaiController extends Controller
             $query->where('nip', $request->nip);
         }
 
-        // Pagination
-        $perPage = $request->get('per_page', 15);
+        // Search across isi_form fields when `q` provided (PostgreSQL only)
+        if ($request->has('q') && strlen($request->get('q')) > 0) {
+            $search = $request->get('q');
+            $like = "%{$search}%";
+            $fields = ['nama_lengkap', 'nip_no_absen', 'jabatan', 'unit_kerja', 'status_pegawai'];
+
+            $query->where(function ($sub) use ($like, $fields) {
+                foreach ($fields as $idx => $field) {
+                    $expr = "(isi_form->>'{$field}') ILIKE ?";
+                    if ($idx === 0) {
+                        $sub->whereRaw($expr, [$like]);
+                    } else {
+                        $sub->orWhereRaw($expr, [$like]);
+                    }
+                }
+
+                // Also search related `kegiatan` fields: `nama_kegiatan` and `judul_tema`
+                $sub->orWhereHas('kegiatan', function ($q) use ($like) {
+                    $q->where('nama_kegiatan', 'ILIKE', $like)
+                      ->orWhere('judul_tema', 'ILIKE', $like);
+                });
+            });
+        }
+
+        // Sorting: allowed isi_form fields (PostgreSQL only)
+        $allowed = ['nama_lengkap', 'nip_no_absen', 'jabatan', 'unit_kerja', 'status_pegawai'];
+        if ($request->has('sort')) {
+            $sortParam = $request->get('sort');
+            $key = preg_replace('/^isi_form\./', '', $sortParam);
+            $direction = strtolower($request->get('order', 'asc')) === 'desc' ? 'desc' : 'asc';
+            if (in_array($key, $allowed, true)) {
+                $expr = "(isi_form->>'{$key}')";
+                $query->orderByRaw("{$expr} {$direction}");
+            }
+        }
+
+        // Pagination (fallback ordering if no sort applied)
+        $perPage = $request->get('per_page', 25);
         if ($withPagination) {
-            $kegiatanPegawai = $query->orderBy('created_at', 'desc')->paginate($perPage);
+            if (empty($request->get('sort'))) {
+                $query->orderBy('created_at', 'desc');
+            }
+            $kegiatanPegawai = $query->paginate($perPage);
         } else {
-            $kegiatanPegawai = $query->orderBy('created_at', 'desc')->get();
+            if (empty($request->get('sort'))) {
+                $query->orderBy('created_at', 'desc');
+            }
+            $kegiatanPegawai = $query->get();
         }
 
         return response()->json([
@@ -95,9 +137,7 @@ class KegiatanPegawaiController extends Controller
 
             // Generate certificate
             try {
-                $certificatePath = $this->certificateService->generateCertificate($kegiatanPegawai);
-                $kegiatanPegawai->link_sertifikat = $certificatePath;
-                $kegiatanPegawai->save();
+                $this->certificateService->generateCertificate($kegiatanPegawai);
             } catch (\Exception $e) {
                 // Log error but don't fail the creation
                 Log::error('Certificate generation failed: ' . $e->getMessage());
@@ -180,9 +220,7 @@ class KegiatanPegawaiController extends Controller
             // Regenerate certificate if significant data changed
             if ($request->has('kegiatan_id') || $request->has('nip') || $request->has('isi_form')) {
                 try {
-                    $certificatePath = $this->certificateService->generateCertificate($kegiatanPegawai);
-                    $kegiatanPegawai->link_sertifikat = $certificatePath;
-                    $kegiatanPegawai->save();
+                    $this->certificateService->generateCertificate($kegiatanPegawai);
                 } catch (\Exception $e) {
                     Log::error('Certificate generation failed: ' . $e->getMessage());
                 }
@@ -253,10 +291,7 @@ class KegiatanPegawaiController extends Controller
     {
         try {
             $kegiatanPegawai = KegiatanPegawai::with('kegiatan')->findOrFail($id);
-
-            $certificatePath = $this->certificateService->generateCertificate($kegiatanPegawai);
-            $kegiatanPegawai->link_sertifikat = $certificatePath;
-            $kegiatanPegawai->save();
+            $this->certificateService->generateCertificate($kegiatanPegawai);
 
             return response()->json([
                 'success' => true,
@@ -269,6 +304,7 @@ class KegiatanPegawaiController extends Controller
                 'message' => 'Data kegiatan pegawai tidak ditemukan',
             ], 404);
         } catch (\Exception $e) {
+            Log::error('Certificate regeneration failed: ', ['error' => $e]);
             return response()->json([
                 'success' => false,
                 'message' => 'Gagal generate sertifikat',

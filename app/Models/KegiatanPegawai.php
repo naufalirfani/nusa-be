@@ -20,10 +20,19 @@ class KegiatanPegawai extends Model
         'nip',
         'isi_form',
         'link_sertifikat',
+        'verification_token',
+        'pdf_hash',
+        'signed_at',
+    ];
+
+    protected $hidden = [
+        'verification_token',
+        'pdf_hash',
     ];
 
     protected $casts = [
-        'isi_form' => 'json',
+        'isi_form'  => 'json',
+        'signed_at' => 'datetime',
     ];
 
     protected static function booted()

@@ -24,6 +24,7 @@ return [
         'http://127.0.0.1:5173',
         'https://nusadpd.duckdns.org',
         'https://nusa.dpd.go.id',
+        'https://nusa-be.dpd.go.id',
     ],
 
     'allowed_origins_patterns' => [],

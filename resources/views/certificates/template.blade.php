@@ -67,9 +67,30 @@
 
         @elseif(($element['type'] ?? '') === 'image')
             @php
+                $elementId = $element['id'] ?? '';
                 $imagePath = $element['path'] ?? '';
-                $possible = [ public_path($imagePath), public_path('storage/' . $imagePath) ];
-                $full = null; foreach($possible as $p){ if(file_exists($p)){ $full = $p; break; } }
+                
+                // Check if this is a QR code element
+                if($elementId === 'qrcode' && isset($id)){
+                    // Use generated QR code
+                    $qrPath = storage_path("app/public/qrcodes/{$id}.png");
+                    if(file_exists($qrPath)){
+                        $full = $qrPath;
+                    } else {
+                        $full = null;
+                    }
+                } else {
+                    // Regular image
+                    $possible = [ public_path($imagePath), public_path('storage/' . $imagePath) ];
+                    $full = null; 
+                    foreach($possible as $p){ 
+                        if(file_exists($p)){ 
+                            $full = $p; 
+                            break; 
+                        } 
+                    }
+                }
+                
                 if($full){
                     $img = file_get_contents($full);
                     $mime = mime_content_type($full) ?: 'image/png';
