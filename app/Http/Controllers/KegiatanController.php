@@ -107,6 +107,9 @@ class KegiatanController extends Controller
             if ($item->virtual_background) {
                 $item->virtual_background_url = url('storage/' . $item->virtual_background);
             }
+            if ($item->template_sertifikat) {
+                $item->template_sertifikat_url = url('storage/' . $item->template_sertifikat);
+            }
             return $item;
         });
 
@@ -121,10 +124,13 @@ class KegiatanController extends Controller
      */
     public function store(Request $request)
     {
+        $useExistingTemplate = $request->boolean('useExistingTemplate');
+
         $validator = Validator::make($request->all(), [
             'banner' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'materi' => 'nullable',
             'virtual_background' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'template_sertifikat' => $useExistingTemplate ? 'nullable|string|max:500' : 'nullable|file|max:5120',
             'jenis_kegiatan' => 'required|string|max:100',
             'nama_kegiatan' => 'required|string|max:255',
             'judul_tema' => 'required|string|max:255',
@@ -150,7 +156,7 @@ class KegiatanController extends Controller
             ], 422);
         }
 
-        $data = $request->except(['banner', 'materi', 'virtual_background']);
+        $data = $request->except(['banner', 'materi', 'virtual_background', 'template_sertifikat']);
 
         // Handle desain_sertifikat JSON dari form-data
         if ($request->has('desain_sertifikat')) {
@@ -182,6 +188,24 @@ class KegiatanController extends Controller
                     ], 422);
                 }
             }
+        }
+
+        // Handle template_sertifikat
+        if ($request->hasFile('template_sertifikat')) {
+            // Upload file baru
+            $file = $request->file('template_sertifikat');
+            $filename = time() . '_' . $file->getClientOriginalName();
+            $path = $file->storeAs('kegiatan/template_sertifikat', $filename, 'public');
+            $data['template_sertifikat'] = $path;
+        } elseif ($useExistingTemplate && $request->filled('template_sertifikat')) {
+            // Gunakan path yang sudah ada (template default atau template yang pernah diupload)
+            // Path dikirim tanpa prefix /storage/, e.g. "kegiatan/template_sertifikat/file.pptx"
+            $templatePath = $request->input('template_sertifikat');
+            // Cegah path traversal
+            if (str_contains($templatePath, '..')) {
+                return response()->json(['success' => false, 'message' => 'Path template tidak valid'], 422);
+            }
+            $data['template_sertifikat'] = $templatePath;
         }
 
         // Upload banner jika ada
@@ -220,6 +244,9 @@ class KegiatanController extends Controller
         if ($kegiatan->virtual_background) {
             $kegiatan->virtual_background_url = url('storage/' . $kegiatan->virtual_background);
         }
+        if ($kegiatan->template_sertifikat) {
+            $kegiatan->template_sertifikat_url = url('storage/' . $kegiatan->template_sertifikat);
+        }
 
         return response()->json([
             'success' => true,
@@ -252,6 +279,9 @@ class KegiatanController extends Controller
         if ($kegiatan->virtual_background) {
             $kegiatan->virtual_background_url = url('storage/' . $kegiatan->virtual_background);
         }
+        if ($kegiatan->template_sertifikat) {
+            $kegiatan->template_sertifikat_url = url('storage/' . $kegiatan->template_sertifikat);
+        }
 
         return response()->json([
             'success' => true,
@@ -280,6 +310,9 @@ class KegiatanController extends Controller
         if ($kegiatan->virtual_background) {
             $kegiatan->virtual_background_url = url('storage/' . $kegiatan->virtual_background);
         }
+        if ($kegiatan->template_sertifikat) {
+            $kegiatan->template_sertifikat_url = url('storage/' . $kegiatan->template_sertifikat);
+        }
 
         return response()->json([
             'success' => true,
@@ -301,10 +334,13 @@ class KegiatanController extends Controller
             ], 404);
         }
 
+        $useExistingTemplate = $request->boolean('useExistingTemplate');
+
         $validator = Validator::make($request->all(), [
             'banner' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'materi' => 'sometimes|nullable',
             'virtual_background' => 'sometimes|nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'template_sertifikat' => $useExistingTemplate ? 'sometimes|nullable|string|max:500' : 'sometimes|nullable|file|max:5120',
             'jenis_kegiatan' => 'sometimes|required|string|max:100',
             'nama_kegiatan' => 'sometimes|required|string|max:255',
             'judul_tema' => 'sometimes|required|string|max:255',
@@ -330,7 +366,7 @@ class KegiatanController extends Controller
             ], 422);
         }
 
-        $data = $request->except(['banner', 'materi', 'virtual_background']);
+        $data = $request->except(['banner', 'materi', 'virtual_background', 'template_sertifikat']);
 
         // Handle desain_sertifikat JSON dari form-data
         if ($request->has('desain_sertifikat')) {
@@ -362,6 +398,27 @@ class KegiatanController extends Controller
                     ], 422);
                 }
             }
+        }
+
+        // Handle template_sertifikat
+        if ($request->hasFile('template_sertifikat')) {
+            // Upload file baru — hapus yang lama dulu
+            if ($kegiatan->template_sertifikat && Storage::disk('public')->exists($kegiatan->template_sertifikat)) {
+                Storage::disk('public')->delete($kegiatan->template_sertifikat);
+            }
+            $file = $request->file('template_sertifikat');
+            $filename = time() . '_' . $file->getClientOriginalName();
+            $path = $file->storeAs('kegiatan/template_sertifikat', $filename, 'public');
+            $data['template_sertifikat'] = $path;
+        } elseif ($useExistingTemplate && $request->filled('template_sertifikat')) {
+            // Gunakan path yang sudah ada (template default atau template yang pernah diupload)
+            // Tidak hapus file lama — path berbeda / shared
+            $templatePath = $request->input('template_sertifikat');
+            // Cegah path traversal
+            if (str_contains($templatePath, '..')) {
+                return response()->json(['success' => false, 'message' => 'Path template tidak valid'], 422);
+            }
+            $data['template_sertifikat'] = $templatePath;
         }
 
         // Upload banner baru jika ada
@@ -411,6 +468,9 @@ class KegiatanController extends Controller
         if ($kegiatan->virtual_background) {
             $kegiatan->virtual_background_url = url('storage/' . $kegiatan->virtual_background);
         }
+        if ($kegiatan->template_sertifikat) {
+            $kegiatan->template_sertifikat_url = url('storage/' . $kegiatan->template_sertifikat);
+        }
 
         return response()->json([
             'success' => true,
@@ -446,6 +506,11 @@ class KegiatanController extends Controller
         // Hapus virtual_background jika ada
         if ($kegiatan->virtual_background && Storage::disk('public')->exists($kegiatan->virtual_background)) {
             Storage::disk('public')->delete($kegiatan->virtual_background);
+        }
+
+        // Hapus template_sertifikat jika ada
+        if ($kegiatan->template_sertifikat && Storage::disk('public')->exists($kegiatan->template_sertifikat)) {
+            Storage::disk('public')->delete($kegiatan->template_sertifikat);
         }
 
         $kegiatan->delete();

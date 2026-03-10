@@ -12,11 +12,13 @@ use SimpleSoftwareIO\QrCode\Facades\QrCode;
  * Orchestrates certificate generation:
  *   1. Resolves placeholder values (name, role, date, cert number, etc.).
  *   2. Generates a QR code PNG that points to /verify/{uuid}.
- *   3. Delegates PDF rendering + digital signing to PdfSigningService.
+ *   3. Delegates PDF rendering + digital signing to the appropriate service:
+ *        • template_sertifikat set → PptxCertificateService (PPTX-based)
+ *        • desain_sertifikat set  → PdfSigningService (JSON design-based)
  *   4. Persists the output path and sign timestamp on the model.
  *
- * Verification flow (new)
- * -----------------------
+ * Verification flow
+ * -----------------
  *   QR scan -> frontend /verify/{uuid}
  *           -> API GET /sertifikat/verify/{uuid}
  *           -> returns certificate metadata (no hash check needed)
@@ -27,7 +29,8 @@ use SimpleSoftwareIO\QrCode\Facades\QrCode;
 class CertificateService
 {
     public function __construct(
-        private readonly PdfSigningService $signingService
+        private readonly PdfSigningService     $signingService,
+        private readonly PptxCertificateService $pptxService
     ) {}
 
     // =========================================================================
@@ -43,10 +46,11 @@ class CertificateService
      */
     public function generateCertificate(KegiatanPegawai $kegiatanPegawai): string
     {
-        $kegiatan         = $kegiatanPegawai->kegiatan;
-        $desainSertifikat = $kegiatan->desain_sertifikat;
+        $kegiatan           = $kegiatanPegawai->kegiatan;
+        $templateSertifikat = $kegiatan->template_sertifikat;
+        $desainSertifikat   = $kegiatan->desain_sertifikat;
 
-        if (! $desainSertifikat) {
+        if (! $templateSertifikat && ! $desainSertifikat) {
             throw new \Exception('Desain sertifikat tidak ditemukan.');
         }
 
@@ -72,12 +76,23 @@ class CertificateService
         $relativePath = "certificates/{$kegiatanPegawai->id}.pdf";
         $absolutePath = storage_path("app/public/{$relativePath}");
 
-        $this->signingService->generate(
-            $desainSertifikat,
-            $placeholders,
-            $qrCodePath,
-            $absolutePath
-        );
+        if ($templateSertifikat) {
+            // PPTX template path: placeholders replaced in slide XML, {{tte}} → QR code
+            $this->pptxService->generate(
+                $templateSertifikat,
+                $placeholders,
+                $qrCodePath,
+                $absolutePath
+            );
+        } else {
+            // JSON design-based generation (existing flow)
+            $this->signingService->generate(
+                $desainSertifikat,
+                $placeholders,
+                $qrCodePath,
+                $absolutePath
+            );
+        }
 
         // --- Persist ------------------------------------------------------------
         $kegiatanPegawai->link_sertifikat = $relativePath;

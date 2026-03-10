@@ -13,6 +13,7 @@ RUN apk add --no-cache \
     libpq-dev oniguruma-dev libxml2-dev libzip-dev \
     libjpeg-turbo-dev libpng-dev freetype-dev icu-dev \
     sqlite-dev \
+    libreoffice font-liberation ttf-freefont \
  && apk add --no-cache --virtual .build-deps \
     autoconf gcc g++ make \
  && docker-php-ext-configure gd --with-freetype --with-jpeg \

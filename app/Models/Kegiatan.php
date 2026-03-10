@@ -33,6 +33,7 @@ class Kegiatan extends Model
         'jam_mulai',
         'jam_selesai',
         'desain_sertifikat',
+        'template_sertifikat',
         'form_evaluasi',
     ];
 
