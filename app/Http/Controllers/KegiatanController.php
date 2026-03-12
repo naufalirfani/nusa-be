@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Kegiatan;
+use App\Services\CertificateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -519,5 +520,45 @@ class KegiatanController extends Controller
             'success' => true,
             'message' => 'Kegiatan berhasil dihapus'
         ]);
+    }
+
+    /**
+     * Generate a test certificate preview for a Kegiatan.
+     *
+     * Uses dummy data — no KegiatanPegawai record required.
+     * Returns the PDF directly without saving to storage.
+     *
+     * GET /kegiatan/{id}/test-certificate
+     */
+    public function testCertificate(string $id, CertificateService $certificateService)
+    {
+        $kegiatan = Kegiatan::find($id);
+
+        if (! $kegiatan) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Kegiatan tidak ditemukan',
+            ], 404);
+        }
+
+        if (! $kegiatan->desain_sertifikat && ! $kegiatan->template_sertifikat) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Kegiatan ini tidak memiliki desain sertifikat.',
+            ], 422);
+        }
+
+        try {
+            $pdfContent = $certificateService->generateForTest($kegiatan);
+
+            return response($pdfContent, 200)
+                ->header('Content-Type', 'application/pdf')
+                ->header('Content-Disposition', 'inline; filename="test-certificate.pdf"');
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal generate sertifikat: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 }

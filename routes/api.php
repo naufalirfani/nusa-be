@@ -23,6 +23,7 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->gro
     // Use POST for update to support FormData from frontend
     Route::post('kegiatan/{id}', [KegiatanController::class, 'update']);
     Route::delete('kegiatan/{id}', [KegiatanController::class, 'destroy']);
+    Route::get('kegiatan/{id}/test-certificate', [KegiatanController::class, 'testCertificate']);
 
     // Kegiatan Pegawai CRUD routes
     Route::get('kegiatan-pegawai', [KegiatanPegawaiController::class, 'index']);

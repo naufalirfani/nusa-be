@@ -102,6 +102,75 @@ class CertificateService
         return $relativePath;
     }
 
+    /**
+     * Generate a test certificate for a Kegiatan without saving to storage.
+     *
+     * Uses dummy placeholder values so no real KegiatanPegawai record is needed.
+     * The PDF is generated to a temp file, read into memory, and cleaned up.
+     *
+     * @return string Raw PDF bytes
+     *
+     * @throws \Exception when the kegiatan has no certificate design
+     */
+    public function generateForTest(\App\Models\Kegiatan $kegiatan): string
+    {
+        $templateSertifikat = $kegiatan->template_sertifikat;
+        $desainSertifikat   = $kegiatan->desain_sertifikat;
+
+        if (! $templateSertifikat && ! $desainSertifikat) {
+            throw new \Exception('Kegiatan ini tidak memiliki desain sertifikat.');
+        }
+
+        $placeholders = [
+            '{{nomor_sertifikat}}' => 'KP.04.00/1/1/DPDRI/III/2026',
+            '{{nama}}'             => 'John Doe',
+            '{{peran}}'            => 'Peserta',
+            '{{nama_kegiatan}}'    => $kegiatan->nama_kegiatan ?? 'Pelatihan Pengembangan SDM',
+            '{{judul_kegiatan}}'   => $kegiatan->judul_tema    ?? 'Tema Pelatihan',
+            '{{tanggal}}'          => $this->formatTanggal($kegiatan->tanggal ?? now()),
+        ];
+
+        $tempId  = uniqid('test_cert_', true);
+        $tempDir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . $tempId;
+        @mkdir($tempDir, 0755, true);
+
+        $qrCodePath  = $tempDir . DIRECTORY_SEPARATOR . 'qr.png';
+        $tempPdfPath = $tempDir . DIRECTORY_SEPARATOR . 'certificate.pdf';
+
+        try {
+            // Generate a placeholder QR code pointing to a dummy URL
+            QrCode::format('png')->size(300)->margin(0)
+                ->generate(config('app.frontend_url', config('app.url')) . '/verify/test-preview', $qrCodePath);
+
+            if ($templateSertifikat) {
+                $this->pptxService->generate(
+                    $templateSertifikat,
+                    $placeholders,
+                    $qrCodePath,
+                    $tempPdfPath
+                );
+            } else {
+                $this->signingService->generate(
+                    $desainSertifikat,
+                    $placeholders,
+                    $qrCodePath,
+                    $tempPdfPath
+                );
+            }
+
+            return file_get_contents($tempPdfPath);
+        } finally {
+            foreach ([$tempPdfPath, $qrCodePath] as $f) {
+                if (file_exists($f)) {
+                    unlink($f);
+                }
+            }
+            if (is_dir($tempDir)) {
+                @rmdir($tempDir);
+            }
+        }
+    }
+
     // =========================================================================
     // Private helpers
     // =========================================================================
