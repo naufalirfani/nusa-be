@@ -13,6 +13,7 @@ RUN apk add --no-cache \
     libpq-dev oniguruma-dev libxml2-dev libzip-dev \
     libjpeg-turbo-dev libpng-dev freetype-dev icu-dev \
     sqlite-dev \
+    imagemagick imagemagick-dev \
     libreoffice font-liberation ttf-freefont \
  && apk add --no-cache --virtual .build-deps \
     autoconf gcc g++ make \
@@ -20,8 +21,8 @@ RUN apk add --no-cache \
  && docker-php-ext-install -j$(nproc) \
     pdo pdo_mysql pdo_pgsql pgsql pdo_sqlite \
     mbstring pcntl zip bcmath gd exif intl \
- && pecl install redis \
- && docker-php-ext-enable redis opcache \
+ && pecl install redis imagick \
+ && docker-php-ext-enable redis imagick opcache \
  && apk del .build-deps \
  && rm -rf /var/cache/apk/*
 
