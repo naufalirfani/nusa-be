@@ -50,7 +50,7 @@ COPY docker/entrypoint.sh /entrypoint.sh
 
 # Setup Laravel runtime dirs and permissions
 RUN rm -rf bootstrap/cache/*.php \
- && mkdir -p bootstrap/cache storage/logs storage/app/public public/storage \
+ && mkdir -p bootstrap/cache storage/logs storage/app/public \
  && chown -R www-data:www-data bootstrap/cache storage \
  && chmod -R 775 bootstrap/cache storage \
  && php artisan config:clear || true \
