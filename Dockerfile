@@ -43,23 +43,24 @@ COPY . .
 # Ensure you provide .env-docker at build time (this file will be copied to .env)
 COPY .env-docker .env
 
+# Setup Laravel runtime dirs and permissions
+RUN rm -rf bootstrap/cache/*.php \
+ && mkdir -p bootstrap/cache storage/logs storage/app/public \
+ && rm -rf public/storage \
+ && chown -R www-data:www-data bootstrap/cache storage \
+ && chmod -R 775 bootstrap/cache storage \
+ && php artisan config:clear \
+ && composer dump-autoload --optimize \
+ && php artisan storage:link \
+ && chown -R www-data:www-data public/storage
+
+# Configure PHP timezone
+RUN echo "date.timezone = Asia/Jakarta" > /usr/local/etc/php/conf.d/timezone.ini
+
 # Copy config files for nginx/supervisord/entrypoint
 COPY docker/nginx-laravel.conf /etc/nginx/http.d/laravel.conf
 COPY docker/supervisord.conf /etc/supervisord.conf
 COPY docker/entrypoint.sh /entrypoint.sh
-
-# Setup Laravel runtime dirs and permissions
-RUN rm -rf bootstrap/cache/*.php \
- && mkdir -p bootstrap/cache storage/logs storage/app/public \
- && chown -R www-data:www-data bootstrap/cache storage \
- && chmod -R 775 bootstrap/cache storage \
- && php artisan config:clear || true \
- && composer dump-autoload --optimize || true \
- && php artisan storage:link || true \
- && chown -R www-data:www-data public/storage || true
-
-# Configure PHP timezone
-RUN echo "date.timezone = Asia/Jakarta" > /usr/local/etc/php/conf.d/timezone.ini
 
 # Nginx & Entrypoint
 RUN rm -f /etc/nginx/http.d/default.conf \
