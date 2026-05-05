@@ -3,6 +3,23 @@ set -e
 
 cd /var/www/html
 
+# Configure PHP security settings to hide version information
+echo "👉 Configuring PHP security settings..."
+if [ ! -f /usr/local/etc/php/conf.d/security-headers.ini ]; then
+    cat > /usr/local/etc/php/conf.d/security-headers.ini << EOF
+; Hide PHP version information
+expose_php = Off
+; Hide PHP from Server header
+; Disable detailed error messages in production
+display_errors = Off
+log_errors = On
+error_log = /var/log/php-errors.log
+EOF
+    echo "✅ PHP security settings configured!"
+else
+    echo "✅ PHP security settings already configured!"
+fi
+
 # Fix permissions untuk mounted volumes (karena volume mount override Dockerfile permissions)
 echo "👉 Fixing storage and bootstrap/cache permissions..."
 mkdir -p storage/logs storage/app/public storage/framework/cache storage/framework/sessions storage/framework/views

@@ -2,6 +2,5 @@
 
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('welcome');
-});
+// Web routes - intentionally empty for production API backend
+// All API routes are defined in routes/api.php

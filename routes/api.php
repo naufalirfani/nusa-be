@@ -6,6 +6,13 @@ use App\Http\Controllers\KegiatanPegawaiController;
 use App\Http\Controllers\MediaController;
 use App\Http\Controllers\CmbApiController;
 use App\Http\Controllers\CertificateController;
+use App\Http\Controllers\AuthController;
+
+
+// Admin Authentication Routes (no middleware)
+Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->post('admin/login', [AuthController::class, 'login']);
+Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->post('admin/logout', [AuthController::class, 'logout']);
+Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->post('admin/verify', [AuthController::class, 'verify']);
 
 // Public certificate verification route (no auth required)
 // Accepts both new UUID-based identifiers and legacy verification tokens.
