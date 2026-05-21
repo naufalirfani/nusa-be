@@ -187,6 +187,7 @@ class CmbApiController extends Controller
                 ['salt' => $this->apiToken]
             );
             $headers['X-Api-Token'] = $encryptedToken;
+            $headers['origin'] = config('app.url', 'http://localhost');
         }
         
         return $headers;
