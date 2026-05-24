@@ -27,6 +27,8 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->gro
     Route::post('kegiatan', [KegiatanController::class, 'store']);
     Route::get('kegiatan/{id}', [KegiatanController::class, 'show']);
     Route::get('kegiatan/linktree/{linktree}', [KegiatanController::class, 'showByLinktree']);
+    Route::get('kegiatan/{id}/download/materi', [KegiatanController::class, 'downloadMateri']);
+    Route::get('kegiatan/{id}/download/virtual-background', [KegiatanController::class, 'downloadVirtualBackground']);
     // Use POST for update to support FormData from frontend
     Route::post('kegiatan/{id}', [KegiatanController::class, 'update']);
     Route::delete('kegiatan/{id}', [KegiatanController::class, 'destroy']);

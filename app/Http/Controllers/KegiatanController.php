@@ -7,6 +7,7 @@ use App\Services\CertificateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class KegiatanController extends Controller
 {
@@ -22,9 +23,9 @@ class KegiatanController extends Controller
             $s = mb_strtolower($request->get('search'));
             $query->where(function ($q) use ($s) {
                 $q->whereRaw('LOWER(nama_kegiatan) LIKE ?', ["%{$s}%"])
-                  ->orWhereRaw('LOWER(judul_tema) LIKE ?', ["%{$s}%"])
-                  ->orWhereRaw('LOWER(deskripsi) LIKE ?', ["%{$s}%"])
-                  ->orWhereRaw('LOWER(tempat) LIKE ?', ["%{$s}%"]);
+                    ->orWhereRaw('LOWER(judul_tema) LIKE ?', ["%{$s}%"])
+                    ->orWhereRaw('LOWER(deskripsi) LIKE ?', ["%{$s}%"])
+                    ->orWhereRaw('LOWER(tempat) LIKE ?', ["%{$s}%"]);
             });
         }
 
@@ -290,7 +291,63 @@ class KegiatanController extends Controller
         ]);
     }
 
-        public function showByLinktree(string $linktree)
+    /**
+     * Download materi kegiatan.
+     */
+    public function downloadMateri(string $id)
+    {
+        return $this->downloadKegiatanFile($id, 'materi');
+    }
+
+    /**
+     * Download virtual background kegiatan.
+     */
+    public function downloadVirtualBackground(string $id)
+    {
+        return $this->downloadKegiatanFile($id, 'virtual_background');
+    }
+
+    /**
+     * Common file download handler for kegiatan attachments.
+     */
+    private function downloadKegiatanFile(string $id, string $field)
+    {
+        $kegiatan = Kegiatan::find($id);
+
+        if (! $kegiatan) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Kegiatan tidak ditemukan',
+            ], 404);
+        }
+
+        $filePath = $kegiatan->{$field};
+
+        if (! $filePath) {
+            return response()->json([
+                'success' => false,
+                'message' => ucfirst(str_replace('_', ' ', $field)) . ' tidak ditemukan',
+            ], 404);
+        }
+
+        if (! Storage::disk('public')->exists($filePath)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'File tidak ditemukan di storage',
+            ], 404);
+        }
+
+        $extension = pathinfo($filePath, PATHINFO_EXTENSION);
+        $downloadName = trim((Str::slug($kegiatan->nama_kegiatan ?: 'kegiatan') ?: 'kegiatan') . '-' . str_replace('_', '-', $field), '-');
+
+        if ($extension !== '') {
+            $downloadName .= '.' . $extension;
+        }
+
+        return Storage::disk('public')->download($filePath, $downloadName);
+    }
+
+    public function showByLinktree(string $linktree)
     {
         $kegiatan = Kegiatan::where('linktree', $linktree)->first();
 
@@ -354,7 +411,7 @@ class KegiatanController extends Controller
             'tanggal' => 'sometimes|required|date',
             'jam_mulai' => 'sometimes|required|date_format:H:i',
             'jam_selesai' => 'sometimes|required|date_format:H:i|after:jam_mulai',
-            'linktree' => 'sometimes|nullable|string|max:15|unique:kegiatan,linktree,'.$id.',id',
+            'linktree' => 'sometimes|nullable|string|max:15|unique:kegiatan,linktree,' . $id . ',id',
             'youtube' => 'sometimes|nullable|url|max:255',
             'desain_sertifikat' => 'sometimes|nullable|string',
             'form_evaluasi' => 'sometimes|nullable|string',
