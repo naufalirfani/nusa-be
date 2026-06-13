@@ -17,6 +17,7 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->pos
 // Public certificate verification route (no auth required)
 // Accepts both new UUID-based identifiers and legacy verification tokens.
 Route::get('sertifikat/verify/{identifier}', [CertificateController::class, 'verify']);
+Route::get('sertifikat/download/{identifier}', [CertificateController::class, 'download']);
 
 // Apply API token, logging and IP whitelist middleware to all API routes
 Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->group(function () {

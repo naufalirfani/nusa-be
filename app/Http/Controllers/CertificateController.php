@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\KegiatanPegawai;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 /**
  * CertificateController
@@ -29,6 +31,22 @@ use Illuminate\Http\JsonResponse;
 class CertificateController extends Controller
 {
     /**
+     * Resolve a kegiatan pegawai record by UUID primary key or legacy token.
+     */
+    private function resolveKegiatanPegawai(string $identifier): ?KegiatanPegawai
+    {
+        $kegiatanPegawai = KegiatanPegawai::query()->whereKey($identifier)->first();
+
+        if ($kegiatanPegawai) {
+            return $kegiatanPegawai;
+        }
+
+        return KegiatanPegawai::query()
+            ->where('verification_token', '=', $identifier)
+            ->first();
+    }
+
+    /**
      * Return metadata for a certificate identified by its UUID.
      *
      * Supports two identifier forms for backward compatibility:
@@ -42,7 +60,7 @@ class CertificateController extends Controller
         try {
             // --- Resolve the record -------------------------------------------
             // Try UUID (primary key) first; fall back to legacy token column.
-            $kegiatanPegawai = KegiatanPegawai::find($identifier)->first();
+            $kegiatanPegawai = $this->resolveKegiatanPegawai($identifier);
 
             if (! $kegiatanPegawai) {
                 return response()->json([
@@ -101,6 +119,62 @@ class CertificateController extends Controller
                 'valid'   => false,
                 'message' => 'Terjadi kesalahan saat verifikasi.',
                 'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Download the generated certificate PDF without requiring login.
+     */
+    public function download(string $identifier)
+    {
+        try {
+            $kegiatanPegawai = $this->resolveKegiatanPegawai($identifier);
+
+            if (! $kegiatanPegawai) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Sertifikat tidak ditemukan.',
+                ], 404);
+            }
+
+            $filePath = $kegiatanPegawai->link_sertifikat;
+
+            if (! $filePath) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'File sertifikat tidak ditemukan.',
+                ], 404);
+            }
+
+            if (! Storage::disk('public')->exists($filePath)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'File tidak ditemukan di storage.',
+                ], 404);
+            }
+
+            $extension = pathinfo($filePath, PATHINFO_EXTENSION);
+            $namaLengkap = $kegiatanPegawai->isi_form['nama_lengkap'] ?? 'sertifikat';
+            $downloadName = trim(
+                (Str::slug($namaLengkap ?: 'sertifikat') ?: 'sertifikat')
+                . '-sertifikat',
+                '-'
+            );
+
+            if ($extension !== '') {
+                $downloadName .= '.' . $extension;
+            }
+
+            return response()->download(
+                storage_path('app/public/' . $filePath),
+                $downloadName
+            );
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat mengunduh sertifikat.',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
