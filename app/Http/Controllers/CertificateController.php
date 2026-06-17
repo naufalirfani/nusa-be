@@ -101,6 +101,7 @@ class CertificateController extends Controller
                     'status_pegawai' => $kegiatanPegawai->isi_form['status_pegawai'] ?? null,
                     'isi_form'       => $kegiatanPegawai->isi_form,
                     'link_sertifikat' => $kegiatanPegawai->link_sertifikat,
+                    'nomor_sertifikat' => $kegiatanPegawai->nomor_sertifikat,
                     'signed_at'      => $kegiatanPegawai->signed_at,
                     'kegiatan'       => $kegiatanPegawai->kegiatan ? [
                         'id'             => $kegiatanPegawai->kegiatan->id,

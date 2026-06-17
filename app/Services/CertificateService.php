@@ -95,8 +95,9 @@ class CertificateService
         }
 
         // --- Persist ------------------------------------------------------------
-        $kegiatanPegawai->link_sertifikat = $relativePath;
-        $kegiatanPegawai->signed_at       = now();
+        $kegiatanPegawai->link_sertifikat  = $relativePath;
+        $kegiatanPegawai->nomor_sertifikat = $nomorSertifikat;
+        $kegiatanPegawai->signed_at        = now();
         $kegiatanPegawai->save();
 
         return $relativePath;

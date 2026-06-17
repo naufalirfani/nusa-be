@@ -20,6 +20,7 @@ class KegiatanPegawai extends Model
         'nip',
         'isi_form',
         'link_sertifikat',
+        'nomor_sertifikat',
         'verification_token',
         'pdf_hash',
         'signed_at',
