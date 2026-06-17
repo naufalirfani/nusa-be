@@ -23,8 +23,8 @@ fi
 # Configure upload limits so Laravel receives larger multipart requests.
 if [ ! -f /usr/local/etc/php/conf.d/upload-limits.ini ]; then
     cat > /usr/local/etc/php/conf.d/upload-limits.ini << EOF
-upload_max_filesize = 15M
-post_max_size = 20M
+upload_max_filesize = 100M
+post_max_size = 100M
 EOF
     echo "✅ PHP upload limits configured!"
 else
