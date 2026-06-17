@@ -57,6 +57,13 @@ RUN rm -rf bootstrap/cache/*.php \
 # Configure PHP timezone
 RUN echo "date.timezone = Asia/Jakarta" > /usr/local/etc/php/conf.d/timezone.ini
 
+# Configure PHP upload limits
+RUN echo "upload_max_filesize = 100M" > /usr/local/etc/php/conf.d/uploads.ini \
+ && echo "post_max_size = 100M" >> /usr/local/etc/php/conf.d/uploads.ini \
+ && echo "memory_limit = 512M" >> /usr/local/etc/php/conf.d/uploads.ini \
+ && echo "max_execution_time = 300" >> /usr/local/etc/php/conf.d/uploads.ini \
+ && echo "max_input_time = 300" >> /usr/local/etc/php/conf.d/uploads.ini
+
 # Copy config files for nginx/supervisord/entrypoint
 COPY docker/nginx-laravel.conf /etc/nginx/http.d/laravel.conf
 COPY docker/supervisord.conf /etc/supervisord.conf
