@@ -24,7 +24,7 @@ class KegiatanPegawaiController extends Controller
     public function index(Request $request)
     {
         $query = KegiatanPegawai::with('kegiatan');
-        $withPagination = $request->get('with_pagination', true);
+        $withPagination = $request->boolean('with_pagination', true);
 
         // Filter by kegiatan_id (accept single id, array, or comma-separated list)
         if ($request->has('kegiatan_id')) {
@@ -68,7 +68,7 @@ class KegiatanPegawaiController extends Controller
                 // Also search related `kegiatan` fields: `nama_kegiatan` and `judul_tema`
                 $sub->orWhereHas('kegiatan', function ($q) use ($like) {
                     $q->where('nama_kegiatan', 'ILIKE', $like)
-                      ->orWhere('judul_tema', 'ILIKE', $like);
+                        ->orWhere('judul_tema', 'ILIKE', $like);
                 });
             });
         }
@@ -86,11 +86,12 @@ class KegiatanPegawaiController extends Controller
         }
 
         // Pagination (fallback ordering if no sort applied)
-        $perPage = $request->get('per_page', 25);
         if ($withPagination) {
             if (empty($request->get('sort'))) {
                 $query->orderBy('created_at', 'desc');
             }
+            
+            $perPage = $request->get('per_page', 25);
             $kegiatanPegawai = $query->paginate($perPage);
         } else {
             if (empty($request->get('sort'))) {
