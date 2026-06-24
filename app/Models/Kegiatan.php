@@ -55,19 +55,6 @@ class Kegiatan extends Model
             $jenis = $model->jenis_kegiatan ?? 'default';
             if (empty($model->sequence_number)) {
                 $max = DB::table($model->getTable())
-                    ->where('jenis_kegiatan', $jenis)
-                    ->max('sequence_number');
-
-                $model->sequence_number = ($max !== null) ? $max + 1 : 1;
-            }
-        });
-
-        static::updating(function ($model) {
-            // if jenis_kegiatan changed and sequence_number not set, assign new sequence
-            if ($model->isDirty('jenis_kegiatan') && empty($model->sequence_number)) {
-                $jenis = $model->jenis_kegiatan ?? 'default';
-                $max = DB::table($model->getTable())
-                    ->where('jenis_kegiatan', $jenis)
                     ->max('sequence_number');
 
                 $model->sequence_number = ($max !== null) ? $max + 1 : 1;
