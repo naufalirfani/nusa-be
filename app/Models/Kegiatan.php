@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Carbon\Carbon;
 
 class Kegiatan extends Model
 {
@@ -51,15 +52,18 @@ class Kegiatan extends Model
                 $model->{$model->getKeyName()} = (string) Str::uuid();
             }
 
-            // assign sequence_number per jenis_kegiatan
-            $jenis = $model->jenis_kegiatan ?? 'default';
             if (empty($model->sequence_number)) {
+
+                // Tentukan tanggal yang dipakai
+                $date = $model->created_at ?? now();
+
                 $max = DB::table($model->getTable())
+                    ->whereYear('created_at', Carbon::parse($date)->year)
+                    ->whereMonth('created_at', Carbon::parse($date)->month)
                     ->max('sequence_number');
 
-                $model->sequence_number = ($max !== null) ? $max + 1 : 1;
+                $model->sequence_number = $max ? $max + 1 : 1;
             }
         });
     }
 }
-
