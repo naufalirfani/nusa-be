@@ -1,0 +1,36 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
+
+class PenilaianPegawai extends Model
+{
+    protected $table = 'penilaian_pegawai';
+
+    public $incrementing = false;
+
+    protected $keyType = 'string';
+
+    protected $fillable = [
+        'periode',
+        'nip_pegawai',
+        'nip_penilai',
+        'role',
+        'penilaian',
+    ];
+
+    protected $casts = [
+        'penilaian' => 'json',
+    ];
+
+    protected static function booted(): void
+    {
+        static::creating(function ($model) {
+            if (empty($model->{$model->getKeyName()})) {
+                $model->{$model->getKeyName()} = (string) Str::uuid();
+            }
+        });
+    }
+}

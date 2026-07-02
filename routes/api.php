@@ -6,7 +6,9 @@ use App\Http\Controllers\KegiatanPegawaiController;
 use App\Http\Controllers\MediaController;
 use App\Http\Controllers\CmbApiController;
 use App\Http\Controllers\CertificateController;
+use App\Http\Controllers\PenilaianPegawaiController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\FeedbackTemplateController;
 
 
 // Admin Authentication Routes (no middleware)
@@ -22,7 +24,7 @@ Route::get('sertifikat/download/{identifier}', [CertificateController::class, 'd
 // Apply API token, logging and IP whitelist middleware to all API routes
 Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->group(function () {
     // API routes will be added here
-    
+
     // Kegiatan CRUD routes (explicit so update can be POST with multipart/form-data)
     Route::get('kegiatan', [KegiatanController::class, 'index']);
     Route::post('kegiatan', [KegiatanController::class, 'store']);
@@ -42,6 +44,18 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->gro
     Route::put('kegiatan-pegawai/{id}', [KegiatanPegawaiController::class, 'update']);
     Route::delete('kegiatan-pegawai/{id}', [KegiatanPegawaiController::class, 'destroy']);
     Route::post('kegiatan-pegawai/{id}/regenerate-certificate', [KegiatanPegawaiController::class, 'regenerateCertificate']);
+
+    // Penilaian Pegawai CRUD routes
+    Route::get('penilaian-pegawai', [PenilaianPegawaiController::class, 'index']);
+    // Store endpoint acts as sync for periode + nip_pegawai + list nip_penilai
+    Route::post('penilaian-pegawai', [PenilaianPegawaiController::class, 'store']);
+    Route::get('penilaian-pegawai/{id}', [PenilaianPegawaiController::class, 'show']);
+    Route::put('penilaian-pegawai/{id}', [PenilaianPegawaiController::class, 'update']);
+    Route::delete('penilaian-pegawai/{id}', [PenilaianPegawaiController::class, 'destroy']);
+    Route::post('penilaian-pegawai/{id}/input-penilaian', [PenilaianPegawaiController::class, 'inputPenilaian']);
+
+    Route::get('/feedback-template', [FeedbackTemplateController::class, 'show']);
+    Route::post('/feedback-template', [FeedbackTemplateController::class, 'store']);
 
     // Media CRUD routes
     Route::prefix('media')->group(function () {
