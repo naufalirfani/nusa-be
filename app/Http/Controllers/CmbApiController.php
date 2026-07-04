@@ -87,8 +87,18 @@ class CmbApiController extends Controller
         try {
             $includeJson = $request->query('include_json', 'false');
             $withPagination = $request->query('with_pagination', 'false');
+            $unitOrganisasiId = $request->query('unit_organisasi_id', null);
+            $perPage = $request->query('per_page', 15);
+            $page = $request->query('page', 1);
+            $nip = $request->query('nip', null);
             
-            $url = "{$this->baseUrl}/api/pegawai?include_json={$includeJson}&with_pagination={$withPagination}";
+            $url = "{$this->baseUrl}/api/pegawai?include_json={$includeJson}&with_pagination={$withPagination}&per_page={$perPage}&page={$page}";
+            if ($unitOrganisasiId) {
+                $url .= "&unit_organisasi_id={$unitOrganisasiId}";
+            }
+            if ($nip) {
+                $url .= "&nip={$nip}";
+            }
             
             $headers = $this->buildHeaders();
             
@@ -191,5 +201,31 @@ class CmbApiController extends Controller
         }
         
         return $headers;
+    }
+
+    public function getUnitOrganisasi(Request $request)
+    {
+        try {
+            $url = "{$this->baseUrl}/api/unit-organisasi";
+            
+            $headers = $this->buildHeaders();
+            $headers['Accept'] = 'application/json';
+            
+            $response = Http::withHeaders($headers)
+                ->withOptions([
+                    'verify' => false,
+                ])
+                ->get($url);
+
+            return response($response->body(), $response->status())
+                ->header('Content-Type', $response->header('Content-Type') ?? 'application/json');
+                
+        } catch (\Exception $e) {
+            Log::error('Error fetching unit organisasi: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Failed to fetch unit organisasi',
+                'message' => $e->getMessage()
+            ], 500);
+        }
     }
 }

@@ -73,6 +73,7 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->gro
     Route::get('sso/generate/{identifier}', [CmbApiController::class, 'generateSsoToken']);
     Route::get('sso/verify/{token}', [CmbApiController::class, 'verifySsoToken']);
     Route::get('pegawai', [CmbApiController::class, 'getPegawai']);
+    Route::get('unit-organisasi', [CmbApiController::class, 'getUnitOrganisasi']);
     Route::get('pegawai/{nip}', [CmbApiController::class, 'getPegawaiByNip']);
     Route::get('calendar/fetch', [CmbApiController::class, 'fetchCalendar']);
 });
