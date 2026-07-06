@@ -127,7 +127,8 @@ class CmbApiController extends Controller
     public function getPegawaiByNip(Request $request, string $nip)
     {
         try {
-            $url = "{$this->baseUrl}/api/pegawai/" . urlencode($nip);
+            $withUnitParent = $request->query('with_unit_parent', 'false');
+            $url = "{$this->baseUrl}/api/pegawai/" . urlencode($nip) . "?with_unit_parent={$withUnitParent}";
             
             $headers = $this->buildHeaders();
             $headers['Content-Type'] = 'application/json';
