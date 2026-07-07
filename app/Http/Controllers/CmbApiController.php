@@ -91,6 +91,7 @@ class CmbApiController extends Controller
             $perPage = $request->query('per_page', 15);
             $page = $request->query('page', 1);
             $nip = $request->query('nip', null);
+            $q = $request->query('q', null);
             
             $url = "{$this->baseUrl}/api/pegawai?include_json={$includeJson}&with_pagination={$withPagination}&per_page={$perPage}&page={$page}";
             if ($unitOrganisasiId) {
@@ -98,6 +99,9 @@ class CmbApiController extends Controller
             }
             if ($nip) {
                 $url .= "&nip={$nip}";
+            }
+            if ($q) {
+                $url .= "&q=" . urlencode($q);
             }
             
             $headers = $this->buildHeaders();
