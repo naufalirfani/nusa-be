@@ -26,11 +26,11 @@ class CmbApiController extends Controller
     {
         try {
             $expMinutes = $request->query('exp_minutes', 60);
-            
+
             $url = "{$this->baseUrl}/sso/generate/" . urlencode($identifier) . "?exp_minutes={$expMinutes}";
-            
+
             $headers = $this->buildHeaders();
-            
+
             $response = Http::withHeaders($headers)
                 ->withOptions([
                     'verify' => false, // Adjust based on your SSL requirements
@@ -39,7 +39,6 @@ class CmbApiController extends Controller
 
             return response($response->body(), $response->status())
                 ->header('Content-Type', $response->header('Content-Type') ?? 'application/json');
-                
         } catch (\Exception $e) {
             Log::error('Error generating SSO token: ' . $e->getMessage());
             return response()->json([
@@ -57,9 +56,9 @@ class CmbApiController extends Controller
     {
         try {
             $url = "{$this->baseUrl}/sso/verify/" . urlencode($token);
-            
+
             $headers = $this->buildHeaders();
-            
+
             $response = Http::withHeaders($headers)
                 ->withOptions([
                     'verify' => false,
@@ -68,7 +67,6 @@ class CmbApiController extends Controller
 
             return response($response->body(), $response->status())
                 ->header('Content-Type', $response->header('Content-Type') ?? 'application/json');
-                
         } catch (\Exception $e) {
             Log::error('Error verifying SSO token: ' . $e->getMessage());
             return response()->json([
@@ -88,11 +86,13 @@ class CmbApiController extends Controller
             $includeJson = $request->query('include_json', 'false');
             $withPagination = $request->query('with_pagination', 'false');
             $unitOrganisasiId = $request->query('unit_organisasi_id', null);
+            $withPegawai360 = $request->query('with_pegawai_360', 'false');
+            $jabatan = $request->query('jabatan', null);
             $perPage = $request->query('per_page', 15);
             $page = $request->query('page', 1);
             $nip = $request->query('nip', null);
             $q = $request->query('q', null);
-            
+
             $url = "{$this->baseUrl}/api/pegawai?include_json={$includeJson}&with_pagination={$withPagination}&per_page={$perPage}&page={$page}";
             if ($unitOrganisasiId) {
                 $url .= "&unit_organisasi_id={$unitOrganisasiId}";
@@ -103,9 +103,15 @@ class CmbApiController extends Controller
             if ($q) {
                 $url .= "&q=" . urlencode($q);
             }
-            
+            if ($withPegawai360) {
+                $url .= "&with_pegawai_360={$withPegawai360}";
+            }
+            if ($jabatan) {
+                $url .= "&jabatan=" . urlencode($jabatan);
+            }
+
             $headers = $this->buildHeaders();
-            
+
             $response = Http::withHeaders($headers)
                 ->withOptions([
                     'verify' => false,
@@ -114,7 +120,6 @@ class CmbApiController extends Controller
 
             return response($response->body(), $response->status())
                 ->header('Content-Type', $response->header('Content-Type') ?? 'application/json');
-                
         } catch (\Exception $e) {
             Log::error('Error fetching pegawai: ' . $e->getMessage());
             return response()->json([
@@ -133,10 +138,10 @@ class CmbApiController extends Controller
         try {
             $withUnitParent = $request->query('with_unit_parent', 'false');
             $url = "{$this->baseUrl}/api/pegawai/" . urlencode($nip) . "?with_unit_parent={$withUnitParent}";
-            
+
             $headers = $this->buildHeaders();
             $headers['Content-Type'] = 'application/json';
-            
+
             $response = Http::withHeaders($headers)
                 ->withOptions([
                     'verify' => false,
@@ -145,7 +150,6 @@ class CmbApiController extends Controller
 
             return response($response->body(), $response->status())
                 ->header('Content-Type', $response->header('Content-Type') ?? 'application/json');
-                
         } catch (\Exception $e) {
             Log::error('Error fetching pegawai by NIP: ' . $e->getMessage());
             return response()->json([
@@ -163,12 +167,12 @@ class CmbApiController extends Controller
     {
         try {
             $period = $request->query('period', '');
-            
+
             $url = "{$this->baseUrl}/calendar/fetch?period={$period}";
-            
+
             $headers = $this->buildHeaders();
             $headers['Accept'] = 'application/json';
-            
+
             $response = Http::withHeaders($headers)
                 ->withOptions([
                     'verify' => false,
@@ -177,7 +181,6 @@ class CmbApiController extends Controller
 
             return response($response->body(), $response->status())
                 ->header('Content-Type', $response->header('Content-Type') ?? 'application/json');
-                
         } catch (\Exception $e) {
             Log::error('Error fetching calendar: ' . $e->getMessage());
             return response()->json([
@@ -195,7 +198,7 @@ class CmbApiController extends Controller
     private function buildHeaders(): array
     {
         $headers = [];
-        
+
         if (!empty($this->apiToken)) {
             $encryptedToken = TokenEncryptionService::encryptTokenForHeader(
                 $this->apiToken,
@@ -204,7 +207,7 @@ class CmbApiController extends Controller
             $headers['X-Api-Token'] = $encryptedToken;
             $headers['origin'] = config('app.url', 'http://localhost');
         }
-        
+
         return $headers;
     }
 
@@ -212,10 +215,10 @@ class CmbApiController extends Controller
     {
         try {
             $url = "{$this->baseUrl}/api/unit-organisasi";
-            
+
             $headers = $this->buildHeaders();
             $headers['Accept'] = 'application/json';
-            
+
             $response = Http::withHeaders($headers)
                 ->withOptions([
                     'verify' => false,
@@ -224,11 +227,35 @@ class CmbApiController extends Controller
 
             return response($response->body(), $response->status())
                 ->header('Content-Type', $response->header('Content-Type') ?? 'application/json');
-                
         } catch (\Exception $e) {
             Log::error('Error fetching unit organisasi: ' . $e->getMessage());
             return response()->json([
                 'error' => 'Failed to fetch unit organisasi',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function getJabatan()
+    {
+        try {
+            $url = "{$this->baseUrl}/api/jabatan";
+
+            $headers = $this->buildHeaders();
+            $headers['Accept'] = 'application/json';
+
+            $response = Http::withHeaders($headers)
+                ->withOptions([
+                    'verify' => false,
+                ])
+                ->get($url);
+
+            return response($response->body(), $response->status())
+                ->header('Content-Type', $response->header('Content-Type') ?? 'application/json');
+        } catch (\Exception $e) {
+            Log::error('Error fetching jabatan: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Failed to fetch jabatan',
                 'message' => $e->getMessage()
             ], 500);
         }

@@ -49,6 +49,8 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->gro
     Route::get('penilaian-pegawai', [PenilaianPegawaiController::class, 'index']);
     // Store endpoint acts as sync for periode + nip_pegawai + list nip_penilai
     Route::post('penilaian-pegawai', [PenilaianPegawaiController::class, 'store']);
+    Route::post('penilaian-pegawai/generate', [PenilaianPegawaiController::class, 'generate']);
+    Route::post('penilaian-pegawai/activate-latest', [PenilaianPegawaiController::class, 'activateLatestPeriode']);
     Route::get('penilaian-pegawai/{id}', [PenilaianPegawaiController::class, 'show']);
     Route::put('penilaian-pegawai/{id}', [PenilaianPegawaiController::class, 'update']);
     Route::delete('penilaian-pegawai/{id}', [PenilaianPegawaiController::class, 'destroy']);
@@ -74,6 +76,7 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->gro
     Route::get('sso/verify/{token}', [CmbApiController::class, 'verifySsoToken']);
     Route::get('pegawai', [CmbApiController::class, 'getPegawai']);
     Route::get('unit-organisasi', [CmbApiController::class, 'getUnitOrganisasi']);
+    Route::get('jabatan', [CmbApiController::class, 'getJabatan']);
     Route::get('pegawai/{nip}', [CmbApiController::class, 'getPegawaiByNip']);
     Route::get('calendar/fetch', [CmbApiController::class, 'fetchCalendar']);
 });

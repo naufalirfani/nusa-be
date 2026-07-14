@@ -19,10 +19,12 @@ class PenilaianPegawai extends Model
         'nip_penilai',
         'role',
         'penilaian',
+        'active',
     ];
 
     protected $casts = [
         'penilaian' => 'json',
+        'active' => 'boolean',
     ];
 
     protected static function booted(): void

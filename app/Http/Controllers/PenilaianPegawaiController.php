@@ -45,6 +45,10 @@ class PenilaianPegawaiController extends Controller
             $query->where('role', $request->get('role'));
         }
 
+        if ($request->filled('active')) {
+            $query->where('active', $request->get('active'));
+        }
+
         if ($request->filled('search')) {
             $search = strtolower($request->get('search'));
             $query->where(function ($q) use ($search) {
@@ -102,6 +106,8 @@ class PenilaianPegawaiController extends Controller
             ], 422);
         }
 
+        $this->checkAndDeactivateOldPeriode($periode);
+
         $mapping = $this->buildRoleMapping($request);
         if (count($mapping) === 0) {
             return response()->json([
@@ -115,28 +121,38 @@ class PenilaianPegawaiController extends Controller
         DB::transaction(function () use ($periode, $nipPegawai, $mapping) {
             $incomingNips = array_keys($mapping);
 
-            PenilaianPegawai::where('periode', '=', $periode, 'and')
-                ->where('nip_pegawai', '=', $nipPegawai, 'and')
+            // Bulk select existing records to minimize queries
+            $existingRecords = PenilaianPegawai::where('periode', $periode)
+                ->where('nip_pegawai', $nipPegawai)
+                ->get()
+                ->keyBy('nip_penilai');
+
+            // Bulk delete non-existing records
+            PenilaianPegawai::where('periode', $periode)
+                ->where('nip_pegawai', $nipPegawai)
                 ->whereNotIn('nip_penilai', $incomingNips)
                 ->delete();
 
             foreach ($mapping as $nipPenilai => $role) {
-                PenilaianPegawai::updateOrCreate(
-                    [
+                $existing = $existingRecords->get($nipPenilai);
+                if ($existing) {
+                    $newActive = $existing->active ? true : false;
+                    if ($existing->role !== $role || $existing->active !== $newActive) {
+                        $existing->update([
+                            'role' => $role,
+                            'active' => $newActive,
+                        ]);
+                    }
+                } else {
+                    PenilaianPegawai::create([
                         'periode' => $periode,
                         'nip_pegawai' => $nipPegawai,
                         'nip_penilai' => $nipPenilai,
-                    ],
-                    [
                         'role' => $role,
-                    ]
-                );
+                        'active' => false,
+                    ]);
+                }
             }
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Sinkronisasi penilaian pegawai berhasil',
-            ]);
         });
 
         return response()->json([
@@ -190,6 +206,7 @@ class PenilaianPegawaiController extends Controller
                 ], 422);
             }
 
+            $periodeChanged = false;
             if ($request->has('periode')) {
                 $periode = $this->normalizePeriode($request->get('periode'));
                 if ($periode === null) {
@@ -199,6 +216,10 @@ class PenilaianPegawaiController extends Controller
                     ], 422);
                 }
 
+                if ($periode !== $data->periode) {
+                    $periodeChanged = true;
+                    $this->checkAndDeactivateOldPeriode($periode);
+                }
                 $data->periode = $periode;
             }
 
@@ -213,6 +234,12 @@ class PenilaianPegawaiController extends Controller
             }
             if ($request->has('penilaian')) {
                 $data->penilaian = $request->get('penilaian');
+            }
+
+            if ($periodeChanged) {
+                $data->active = false;
+            } else {
+                $data->active = $data->active ? true : false;
             }
 
             $data->save();
@@ -284,6 +311,249 @@ class PenilaianPegawaiController extends Controller
                 'success' => false,
                 'message' => 'Data penilaian pegawai tidak ditemukan',
             ], 404);
+        }
+    }
+
+    /**
+     * Generate PenilaianPegawai untuk semua pegawai berdasarkan params.
+     */
+    public function generate(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'periode' => 'required|string',
+            'q' => 'nullable|string',
+            'unit_organisasi_id' => 'nullable|integer',
+            'jabatan' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validasi gagal',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $periode = $this->normalizePeriode($request->get('periode'));
+        if ($periode === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Format periode tidak valid. Gunakan YYYY-MM atau MM-YYYY.',
+            ], 422);
+        }
+
+        // Check and deactivate old periods if this period is different
+        $this->checkAndDeactivateOldPeriode($periode);
+
+        // Fetch pegawai from CmbApiController
+        try {
+            $cmbController = app(CmbApiController::class);
+            $cmbRequest = new Request([
+                'include_json' => 'false',
+                'with_pagination' => 'false',
+                'with_pegawai_360' => 'true',
+                'q' => $request->get('q'),
+                'unit_organisasi_id' => $request->get('unit_organisasi_id'),
+                'jabatan' => $request->get('jabatan'),
+            ]);
+
+            $cmbResponse = $cmbController->getPegawai($cmbRequest);
+
+            if ($cmbResponse->getStatusCode() !== 200) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Gagal mengambil data pegawai dari CMB API',
+                    'error' => json_decode($cmbResponse->getContent(), true),
+                ], $cmbResponse->getStatusCode());
+            }
+
+            $pegawaiData = json_decode($cmbResponse->getContent(), true);
+            $pegawais = $pegawaiData['data'] ?? [];
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan saat memanggil CMB API',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+
+        $desired = [];
+        $allNipPegawais = [];
+
+        foreach ($pegawais as $pegawai) {
+            if (empty($pegawai['nip'])) {
+                continue;
+            }
+            $nipPegawai = $pegawai['nip'];
+            $allNipPegawais[] = $nipPegawai;
+
+            $mapping = [];
+
+            // Atasan -> Atasan Langsung
+            if (!empty($pegawai['atasan']) && is_array($pegawai['atasan'])) {
+                foreach ($pegawai['atasan'] as $item) {
+                    if (!empty($item['nip'])) {
+                        $mapping[$item['nip']] = 'Atasan Langsung';
+                    }
+                }
+            }
+
+            // Rekan Kerja -> Rekan Kerja
+            if (!empty($pegawai['rekan_kerja']) && is_array($pegawai['rekan_kerja'])) {
+                foreach ($pegawai['rekan_kerja'] as $item) {
+                    if (!empty($item['nip'])) {
+                        $mapping[$item['nip']] = 'Rekan Kerja';
+                    }
+                }
+            }
+
+            // Bawahan -> Bawahan
+            if (!empty($pegawai['bawahan']) && is_array($pegawai['bawahan'])) {
+                foreach ($pegawai['bawahan'] as $item) {
+                    if (!empty($item['nip'])) {
+                        $mapping[$item['nip']] = 'Bawahan';
+                    }
+                }
+            }
+
+            // Diri Sendiri -> Diri Sendiri
+            if (!empty($pegawai['diri_sendiri'])) {
+                $ds = $pegawai['diri_sendiri'];
+                if (is_array($ds) && !empty($ds['nip'])) {
+                    $mapping[$ds['nip']] = 'Diri Sendiri';
+                }
+            }
+
+            // Penerima Manfaat -> Penerima Manfaat Kerja
+            if (!empty($pegawai['penerima_manfaat'])) {
+                if (is_array($pegawai['penerima_manfaat'])) {
+                    if (isset($pegawai['penerima_manfaat']['nip'])) {
+                        $mapping[$pegawai['penerima_manfaat']['nip']] = 'Penerima Manfaat Kerja';
+                    } else {
+                        foreach ($pegawai['penerima_manfaat'] as $item) {
+                            if (is_array($item) && !empty($item['nip'])) {
+                                $mapping[$item['nip']] = 'Penerima Manfaat Kerja';
+                            }
+                        }
+                    }
+                }
+            }
+
+            $desired[$nipPegawai] = $mapping;
+        }
+
+        $count = count($allNipPegawais);
+
+        DB::transaction(function () use ($periode, $desired, $allNipPegawais) {
+            if (!empty($desired)) {
+                $desiredChunks = array_chunk($desired, 100, true);
+                foreach ($desiredChunks as $chunk) {
+                    PenilaianPegawai::where('periode', $periode)
+                        ->where(function ($q) use ($chunk) {
+                            foreach ($chunk as $nipPegawai => $penilais) {
+                                $incomingNips = array_keys($penilais);
+                                $q->orWhere(function ($sub) use ($nipPegawai, $incomingNips) {
+                                    $sub->where('nip_pegawai', $nipPegawai);
+                                    if (!empty($incomingNips)) {
+                                        $sub->whereNotIn('nip_penilai', $incomingNips);
+                                    }
+                                });
+                            }
+                        })
+                        ->delete();
+                }
+            }
+
+            // Bulk select existing records to minimize queries
+            $existingRecords = PenilaianPegawai::where('periode', $periode)
+                ->whereIn('nip_pegawai', $allNipPegawais)
+                ->get()
+                ->groupBy(function ($item) {
+                    return $item->nip_pegawai . '_' . $item->nip_penilai;
+                });
+
+            $newRecords = [];
+            $now = now();
+
+            foreach ($desired as $nipPegawai => $penilais) {
+                foreach ($penilais as $nipPenilai => $role) {
+                    $key = $nipPegawai . '_' . $nipPenilai;
+                    $existing = $existingRecords->get($key)?->first();
+
+                    if ($existing) {
+                        $newActive = $existing->active ? true : false;
+                        if ($existing->role !== $role || $existing->active !== $newActive) {
+                            $existing->update([
+                                'role' => $role,
+                                'active' => $newActive,
+                            ]);
+                        }
+                    } else {
+                        $newRecords[] = [
+                            'id' => (string) \Illuminate\Support\Str::uuid(),
+                            'periode' => $periode,
+                            'nip_pegawai' => $nipPegawai,
+                            'nip_penilai' => $nipPenilai,
+                            'role' => $role,
+                            'active' => false,
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ];
+                    }
+                }
+            }
+
+            if (!empty($newRecords)) {
+                foreach (array_chunk($newRecords, 500) as $chunk) {
+                    PenilaianPegawai::insert($chunk);
+                }
+            }
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => "Penilaian pegawai berhasil digenerate untuk {$count} pegawai.",
+            'count' => $count,
+        ]);
+    }
+
+    /**
+     * Set active = true untuk semua PenilaianPegawai periode terbaru.
+     */
+    public function activateLatestPeriode()
+    {
+        $latestPeriode = PenilaianPegawai::max('periode');
+
+        if (!$latestPeriode) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tidak ada data penilaian pegawai di database.',
+            ], 404);
+        }
+
+        DB::transaction(function () use ($latestPeriode) {
+            // Deactivate all other periods
+            PenilaianPegawai::where('periode', '!=', $latestPeriode)
+                ->where('active', true)
+                ->update(['active' => false]);
+
+            // Activate latest period
+            PenilaianPegawai::where('periode', $latestPeriode)
+                ->update(['active' => true]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => "Penilaian pegawai untuk periode terbaru ({$latestPeriode}) berhasil diaktifkan.",
+            'periode' => $latestPeriode,
+        ]);
+    }
+
+    private function checkAndDeactivateOldPeriode(string $periode): void
+    {
+        $latestPeriode = PenilaianPegawai::max('periode');
+        if ($latestPeriode && $latestPeriode !== $periode) {
+            PenilaianPegawai::where('active', true)->update(['active' => false]);
         }
     }
 
