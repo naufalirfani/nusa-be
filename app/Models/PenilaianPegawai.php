@@ -20,11 +20,13 @@ class PenilaianPegawai extends Model
         'role',
         'penilaian',
         'active',
+        'is_manual',
     ];
 
     protected $casts = [
         'penilaian' => 'json',
         'active' => 'boolean',
+        'is_manual' => 'boolean',
     ];
 
     protected static function booted(): void

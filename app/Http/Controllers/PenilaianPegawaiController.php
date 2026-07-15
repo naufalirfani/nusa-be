@@ -137,11 +137,15 @@ class PenilaianPegawaiController extends Controller
                 $existing = $existingRecords->get($nipPenilai);
                 if ($existing) {
                     $newActive = $existing->active ? true : false;
-                    if ($existing->role !== $role || $existing->active !== $newActive) {
-                        $existing->update([
-                            'role' => $role,
-                            'active' => $newActive,
-                        ]);
+                    $updateData = [
+                        'role' => $role,
+                        'active' => $newActive,
+                    ];
+                    if ($existing->is_manual !== false) {
+                        $updateData['is_manual'] = true;
+                    }
+                    if ($existing->role !== $role || $existing->active !== $newActive || ($existing->is_manual !== false && !$existing->is_manual)) {
+                        $existing->update($updateData);
                     }
                 } else {
                     PenilaianPegawai::create([
@@ -150,6 +154,7 @@ class PenilaianPegawaiController extends Controller
                         'nip_penilai' => $nipPenilai,
                         'role' => $role,
                         'active' => false,
+                        'is_manual' => true,
                     ]);
                 }
             }
@@ -240,6 +245,10 @@ class PenilaianPegawaiController extends Controller
                 $data->active = false;
             } else {
                 $data->active = $data->active ? true : false;
+            }
+
+            if ($data->is_manual !== false) {
+                $data->is_manual = true;
             }
 
             $data->save();
@@ -453,7 +462,8 @@ class PenilaianPegawaiController extends Controller
                             foreach ($chunk as $nipPegawai => $penilais) {
                                 $incomingNips = array_keys($penilais);
                                 $q->orWhere(function ($sub) use ($nipPegawai, $incomingNips) {
-                                    $sub->where('nip_pegawai', $nipPegawai);
+                                    $sub->where('nip_pegawai', $nipPegawai)
+                                        ->where('is_manual', false);
                                     if (!empty($incomingNips)) {
                                         $sub->whereNotIn('nip_penilai', $incomingNips);
                                     }
@@ -496,6 +506,7 @@ class PenilaianPegawaiController extends Controller
                             'nip_penilai' => $nipPenilai,
                             'role' => $role,
                             'active' => false,
+                            'is_manual' => false,
                             'created_at' => $now,
                             'updated_at' => $now,
                         ];
