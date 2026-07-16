@@ -122,7 +122,8 @@ class PenilaianPegawaiController extends Controller
             $incomingNips = array_keys($mapping);
 
             // Bulk select existing records to minimize queries
-            $existingRecords = PenilaianPegawai::where('periode', $periode)
+            $existingRecords = PenilaianPegawai::withTrashed()
+                ->where('periode', $periode)
                 ->where('nip_pegawai', $nipPegawai)
                 ->get()
                 ->keyBy('nip_penilai');
@@ -136,6 +137,10 @@ class PenilaianPegawaiController extends Controller
             foreach ($mapping as $nipPenilai => $role) {
                 $existing = $existingRecords->get($nipPenilai);
                 if ($existing) {
+                    $wasTrashed = $existing->trashed();
+                    if ($wasTrashed) {
+                        $existing->restore();
+                    }
                     $newActive = $existing->active ? true : false;
                     $updateData = [
                         'role' => $role,
@@ -144,7 +149,7 @@ class PenilaianPegawaiController extends Controller
                     if ($existing->is_manual !== false) {
                         $updateData['is_manual'] = true;
                     }
-                    if ($existing->role !== $role || $existing->active !== $newActive || ($existing->is_manual !== false && !$existing->is_manual)) {
+                    if ($wasTrashed || $existing->role !== $role || $existing->active !== $newActive || ($existing->is_manual !== false && !$existing->is_manual)) {
                         $existing->update($updateData);
                     }
                 } else {
@@ -211,6 +216,13 @@ class PenilaianPegawaiController extends Controller
                 ], 422);
             }
 
+            $oldNipPenilai = $data->nip_penilai;
+            $oldNipPegawai = $data->nip_pegawai;
+            $oldPeriode = $data->periode;
+            $oldIsManual = $data->is_manual;
+            $oldRole = $data->role;
+
+            $keyChanged = false;
             $periodeChanged = false;
             if ($request->has('periode')) {
                 $periode = $this->normalizePeriode($request->get('periode'));
@@ -223,15 +235,22 @@ class PenilaianPegawaiController extends Controller
 
                 if ($periode !== $data->periode) {
                     $periodeChanged = true;
+                    $keyChanged = true;
                     $this->checkAndDeactivateOldPeriode($periode);
                 }
                 $data->periode = $periode;
             }
 
             if ($request->has('nip_pegawai')) {
+                if ($request->get('nip_pegawai') !== $oldNipPegawai) {
+                    $keyChanged = true;
+                }
                 $data->nip_pegawai = $request->get('nip_pegawai');
             }
             if ($request->has('nip_penilai')) {
+                if ($request->get('nip_penilai') !== $oldNipPenilai) {
+                    $keyChanged = true;
+                }
                 $data->nip_penilai = $request->get('nip_penilai');
             }
             if ($request->has('role')) {
@@ -252,6 +271,20 @@ class PenilaianPegawaiController extends Controller
             }
 
             $data->save();
+
+            if ($keyChanged && $oldIsManual === false) {
+                // Create a soft-deleted marker for the old key combination
+                $marker = new PenilaianPegawai([
+                    'periode' => $oldPeriode,
+                    'nip_pegawai' => $oldNipPegawai,
+                    'nip_penilai' => $oldNipPenilai,
+                    'role' => $oldRole,
+                    'active' => false,
+                    'is_manual' => false,
+                ]);
+                $marker->save();
+                $marker->delete();
+            }
 
             return response()->json([
                 'success' => true,
@@ -470,12 +503,13 @@ class PenilaianPegawaiController extends Controller
                                 });
                             }
                         })
-                        ->delete();
+                        ->forceDelete();
                 }
             }
 
             // Bulk select existing records to minimize queries
-            $existingRecords = PenilaianPegawai::where('periode', $periode)
+            $existingRecords = PenilaianPegawai::withTrashed()
+                ->where('periode', $periode)
                 ->whereIn('nip_pegawai', $allNipPegawais)
                 ->get()
                 ->groupBy(function ($item) {
@@ -491,6 +525,9 @@ class PenilaianPegawaiController extends Controller
                     $existing = $existingRecords->get($key)?->first();
 
                     if ($existing) {
+                        if ($existing->trashed()) {
+                            continue;
+                        }
                         $newActive = $existing->active ? true : false;
                         if ($existing->role !== $role || $existing->active !== $newActive) {
                             $existing->update([
