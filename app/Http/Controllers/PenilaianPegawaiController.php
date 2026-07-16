@@ -87,7 +87,7 @@ class PenilaianPegawaiController extends Controller
             'role_mapping' => 'nullable|array',
             'penilai' => 'nullable|array|min:1',
             'penilai.*.nip_penilai' => 'required_with:penilai|string|max:20',
-            'penilai.*.role' => 'nullable|string|max:20',
+            'penilai.*.role' => 'nullable|string|max:25',
         ]);
 
         if ($validator->fails()) {
@@ -199,7 +199,7 @@ class PenilaianPegawaiController extends Controller
                 'periode' => 'sometimes|required|string',
                 'nip_pegawai' => 'sometimes|required|string|max:20',
                 'nip_penilai' => 'sometimes|required|string|max:20',
-                'role' => 'sometimes|required|string|max:20',
+                'role' => 'sometimes|required|string|max:25',
                 'penilaian' => 'sometimes|nullable|array',
             ]);
 
