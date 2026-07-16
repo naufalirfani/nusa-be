@@ -6,6 +6,7 @@ use App\Models\KegiatanPegawai;
 use App\Services\CertificateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 
 class KegiatanPegawaiController extends Controller
@@ -25,6 +26,12 @@ class KegiatanPegawaiController extends Controller
     {
         $query = KegiatanPegawai::with('kegiatan');
         $withPagination = $request->boolean('with_pagination', true);
+        $withIsiForm = $request->boolean('with_isi_form', true);
+
+        if (!$withIsiForm) {
+            $columns = Schema::getColumnListing('kegiatan_pegawai');
+            $query->select(array_diff($columns, ['isi_form']));
+        }
 
         // Filter by kegiatan_id (accept single id, array, or comma-separated list)
         if ($request->has('kegiatan_id')) {
@@ -90,7 +97,7 @@ class KegiatanPegawaiController extends Controller
             if (empty($request->get('sort'))) {
                 $query->orderBy('created_at', 'desc');
             }
-            
+
             $perPage = $request->get('per_page', 25);
             $kegiatanPegawai = $query->paginate($perPage);
         } else {
