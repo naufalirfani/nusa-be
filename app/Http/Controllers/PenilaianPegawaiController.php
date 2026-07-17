@@ -49,6 +49,82 @@ class PenilaianPegawaiController extends Controller
             $query->where('active', $request->get('active'));
         }
 
+        if ($request->filled('status_penilaian')) {
+            $status = $request->get('status_penilaian');
+            $questions = $this->getTemplateQuestions();
+            $all = $questions['all'];
+            $required = $questions['required'];
+
+            $driver = DB::connection()->getDriverName();
+
+            if ($status === 'belum') { // Belum dinilai (empty)
+                $query->where(function ($q) use ($all, $driver) {
+                    if ($driver === 'pgsql') {
+                        $q->whereNull('penilaian')
+                            ->orWhereRaw("CAST(penilaian AS text) = ''")
+                            ->orWhereRaw("CAST(penilaian AS text) = '[]'")
+                            ->orWhereRaw("CAST(penilaian AS text) = '{}'");
+                    } else {
+                        $q->whereNull('penilaian')
+                            ->orWhere('penilaian', '')
+                            ->orWhere('penilaian', '[]')
+                            ->orWhere('penilaian', '{}');
+                    }
+
+                    if (!empty($all)) {
+                        $q->where(function ($sub) use ($all) {
+                            foreach ($all as $field) {
+                                $sub->whereNull("penilaian->{$field}");
+                            }
+                        });
+                    }
+                });
+            } elseif ($status === 'selesai') { // Selesai (complete)
+                if ($driver === 'pgsql') {
+                    $query->whereNotNull('penilaian')
+                        ->whereRaw("CAST(penilaian AS text) != ''")
+                        ->whereRaw("CAST(penilaian AS text) != '[]'")
+                        ->whereRaw("CAST(penilaian AS text) != '{}'");
+                } else {
+                    $query->whereNotNull('penilaian')
+                        ->where('penilaian', '!=', '')
+                        ->where('penilaian', '!=', '[]')
+                        ->where('penilaian', '!=', '{}');
+                }
+                foreach ($required as $field) {
+                    $query->whereNotNull("penilaian->{$field}");
+                }
+            } elseif ($status === 'partial' || $status === 'belum_selesai') { // Belum selesai (partial)
+                if ($driver === 'pgsql') {
+                    $query->whereNotNull('penilaian')
+                        ->whereRaw("CAST(penilaian AS text) != ''")
+                        ->whereRaw("CAST(penilaian AS text) != '[]'")
+                        ->whereRaw("CAST(penilaian AS text) != '{}'");
+                } else {
+                    $query->whereNotNull('penilaian')
+                        ->where('penilaian', '!=', '')
+                        ->where('penilaian', '!=', '[]')
+                        ->where('penilaian', '!=', '{}');
+                }
+
+                if (!empty($all)) {
+                    $query->where(function ($q) use ($all) {
+                        foreach ($all as $field) {
+                            $q->orWhereNotNull("penilaian->{$field}");
+                        }
+                    });
+                }
+
+                if (!empty($required)) {
+                    $query->where(function ($q) use ($required) {
+                        foreach ($required as $field) {
+                            $q->orWhereNull("penilaian->{$field}");
+                        }
+                    });
+                }
+            }
+        }
+
         if ($request->filled('search')) {
             $search = strtolower($request->get('search'));
             $query->where(function ($q) use ($search) {
@@ -669,5 +745,48 @@ class PenilaianPegawaiController extends Controller
         }
 
         return $result;
+    }
+
+    private function getTemplateQuestions(): array
+    {
+        $file = 'feedback-template.json';
+        $template = null;
+        if (\Illuminate\Support\Facades\Storage::exists($file)) {
+            $template = json_decode(\Illuminate\Support\Facades\Storage::get($file), true);
+        }
+
+        if (!$template || !isset($template['pages']) || !is_array($template['pages'])) {
+            return [
+                'all' => ['kinerja_utama', 'komunikasi', 'kolaborasi', 'inisiatif', 'tanggung_jawab', 'catatan_tambahan'],
+                'required' => ['kinerja_utama', 'komunikasi', 'kolaborasi', 'inisiatif', 'tanggung_jawab']
+            ];
+        }
+
+        $all = [];
+        $required = [];
+        $skipTypes = ['html', 'image', 'panel', 'expression'];
+
+        foreach ($template['pages'] as $page) {
+            if (isset($page['elements']) && is_array($page['elements'])) {
+                foreach ($page['elements'] as $element) {
+                    if (empty($element['name']) || (!empty($element['readOnly']) && $element['readOnly'])) {
+                        continue;
+                    }
+                    if (in_array($element['type'] ?? '', $skipTypes)) {
+                        continue;
+                    }
+                    $name = $element['name'];
+                    $all[] = $name;
+                    if (!empty($element['isRequired'])) {
+                        $required[] = $name;
+                    }
+                }
+            }
+        }
+
+        return [
+            'all' => $all,
+            'required' => $required
+        ];
     }
 }
