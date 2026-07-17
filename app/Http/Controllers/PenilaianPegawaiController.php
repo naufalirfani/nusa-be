@@ -382,7 +382,7 @@ class PenilaianPegawaiController extends Controller
     {
         try {
             $data = PenilaianPegawai::findOrFail($id);
-            $data->delete();
+            $data->forceDelete();
 
             return response()->json([
                 'success' => true,
