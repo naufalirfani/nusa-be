@@ -50,6 +50,7 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->gro
     // Store endpoint acts as sync for periode + nip_pegawai + list nip_penilai
     Route::post('penilaian-pegawai', [PenilaianPegawaiController::class, 'store']);
     Route::post('penilaian-pegawai/generate', [PenilaianPegawaiController::class, 'generate']);
+    Route::post('penilaian-pegawai/reset', [PenilaianPegawaiController::class, 'reset']);
     Route::post('penilaian-pegawai/activate-latest', [PenilaianPegawaiController::class, 'activateLatestPeriode']);
     Route::get('penilaian-pegawai/{id}', [PenilaianPegawaiController::class, 'show']);
     Route::put('penilaian-pegawai/{id}', [PenilaianPegawaiController::class, 'update']);

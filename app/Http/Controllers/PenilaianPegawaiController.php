@@ -397,6 +397,92 @@ class PenilaianPegawaiController extends Controller
     }
 
     /**
+     * Hard delete / reset penilai berdasarkan nip_pegawai, list NIP, atau filter.
+     */
+    public function reset(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'periode' => 'nullable|string',
+            'nip_pegawai' => 'nullable|string|max:20',
+            'nip_pegawai_list' => 'nullable|array',
+            'nip_pegawai_list.*' => 'string|max:20',
+            'q' => 'nullable|string',
+            'unit_organisasi_id' => 'nullable|integer',
+            'jabatan' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validasi gagal',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $periode = null;
+        if ($request->filled('periode')) {
+            $periode = $this->normalizePeriode($request->get('periode'));
+            if ($periode === null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Format periode tidak valid. Gunakan YYYY-MM atau MM-YYYY.',
+                ], 422);
+            }
+        }
+
+        $query = PenilaianPegawai::withTrashed();
+
+        if ($periode) {
+            $query->where('periode', $periode);
+        }
+
+        $nipPegawai = $request->get('nip_pegawai');
+        $nipPegawaiList = $request->get('nip_pegawai_list');
+
+        if (!empty($nipPegawai)) {
+            $query->where('nip_pegawai', $nipPegawai);
+        } elseif (!empty($nipPegawaiList) && is_array($nipPegawaiList)) {
+            $query->whereIn('nip_pegawai', $nipPegawaiList);
+        } else {
+            $hasFilter = $request->filled('q') || $request->filled('unit_organisasi_id') || $request->filled('jabatan');
+            if ($hasFilter) {
+                try {
+                    $cmbController = app(CmbApiController::class);
+                    $cmbRequest = new Request([
+                        'include_json' => 'false',
+                        'with_pagination' => 'false',
+                        'q' => $request->get('q'),
+                        'unit_organisasi_id' => $request->get('unit_organisasi_id'),
+                        'jabatan' => $request->get('jabatan'),
+                    ]);
+
+                    $cmbResponse = $cmbController->getPegawai($cmbRequest);
+                    if ($cmbResponse->getStatusCode() === 200) {
+                        $pegawaiData = json_decode($cmbResponse->getContent(), true);
+                        $pegawais = $pegawaiData['data'] ?? [];
+                        $filteredNips = array_filter(array_map(fn($p) => $p['nip'] ?? null, $pegawais));
+                        $query->whereIn('nip_pegawai', $filteredNips);
+                    }
+                } catch (\Exception $e) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Gagal memproses filter pegawai.',
+                        'error' => $e->getMessage(),
+                    ], 500);
+                }
+            }
+        }
+
+        $deletedCount = $query->forceDelete();
+
+        return response()->json([
+            'success' => true,
+            'message' => "Data penilai berhasil di-reset ({$deletedCount} record dihapus secara permanen).",
+            'deleted_count' => $deletedCount,
+        ]);
+    }
+
+    /**
      * API khusus input penilaian.
      */
     public function inputPenilaian(Request $request, string $id)
