@@ -105,10 +105,14 @@ class KegiatanController extends Controller
                 $item->banner_url = url('storage/' . $item->banner);
             }
             if ($item->materi) {
-                $item->materi_url = url('storage/' . $item->materi);
+                $item->materi_url = (str_starts_with($item->materi, 'http://') || str_starts_with($item->materi, 'https://'))
+                    ? $item->materi
+                    : url('storage/' . $item->materi);
             }
             if ($item->virtual_background) {
-                $item->virtual_background_url = url('storage/' . $item->virtual_background);
+                $item->virtual_background_url = (str_starts_with($item->virtual_background, 'http://') || str_starts_with($item->virtual_background, 'https://'))
+                    ? $item->virtual_background
+                    : url('storage/' . $item->virtual_background);
             }
             if ($item->template_sertifikat) {
                 $item->template_sertifikat_url = url('storage/' . $item->template_sertifikat);
@@ -226,6 +230,8 @@ class KegiatanController extends Controller
             $filename = time() . '_' . $file->getClientOriginalName();
             $path = $file->storeAs('kegiatan/materi', $filename, 'public');
             $data['materi'] = $path;
+        } elseif ($request->filled('materi')) {
+            $data['materi'] = $request->input('materi');
         }
 
         // Upload virtual_background jika ada
@@ -234,6 +240,8 @@ class KegiatanController extends Controller
             $filename = time() . '_' . $file->getClientOriginalName();
             $path = $file->storeAs('kegiatan/virtual_backgrounds', $filename, 'public');
             $data['virtual_background'] = $path;
+        } elseif ($request->filled('virtual_background')) {
+            $data['virtual_background'] = $request->input('virtual_background');
         }
 
         $kegiatan = Kegiatan::create($data);
@@ -243,10 +251,14 @@ class KegiatanController extends Controller
             $kegiatan->banner_url = url('storage/' . $kegiatan->banner);
         }
         if ($kegiatan->materi) {
-            $kegiatan->materi_url = url('storage/' . $kegiatan->materi);
+            $kegiatan->materi_url = (str_starts_with($kegiatan->materi, 'http://') || str_starts_with($kegiatan->materi, 'https://'))
+                ? $kegiatan->materi
+                : url('storage/' . $kegiatan->materi);
         }
         if ($kegiatan->virtual_background) {
-            $kegiatan->virtual_background_url = url('storage/' . $kegiatan->virtual_background);
+            $kegiatan->virtual_background_url = (str_starts_with($kegiatan->virtual_background, 'http://') || str_starts_with($kegiatan->virtual_background, 'https://'))
+                ? $kegiatan->virtual_background
+                : url('storage/' . $kegiatan->virtual_background);
         }
         if ($kegiatan->template_sertifikat) {
             $kegiatan->template_sertifikat_url = url('storage/' . $kegiatan->template_sertifikat);
@@ -278,10 +290,14 @@ class KegiatanController extends Controller
             $kegiatan->banner_url = url('storage/' . $kegiatan->banner);
         }
         if ($kegiatan->materi) {
-            $kegiatan->materi_url = url('storage/' . $kegiatan->materi);
+            $kegiatan->materi_url = (str_starts_with($kegiatan->materi, 'http://') || str_starts_with($kegiatan->materi, 'https://'))
+                ? $kegiatan->materi
+                : url('storage/' . $kegiatan->materi);
         }
         if ($kegiatan->virtual_background) {
-            $kegiatan->virtual_background_url = url('storage/' . $kegiatan->virtual_background);
+            $kegiatan->virtual_background_url = (str_starts_with($kegiatan->virtual_background, 'http://') || str_starts_with($kegiatan->virtual_background, 'https://'))
+                ? $kegiatan->virtual_background
+                : url('storage/' . $kegiatan->virtual_background);
         }
         if ($kegiatan->template_sertifikat) {
             $kegiatan->template_sertifikat_url = url('storage/' . $kegiatan->template_sertifikat);
@@ -332,6 +348,10 @@ class KegiatanController extends Controller
             ], 404);
         }
 
+        if (str_starts_with($filePath, 'http://') || str_starts_with($filePath, 'https://')) {
+            return redirect()->away($filePath);
+        }
+
         if (! Storage::disk('public')->exists($filePath)) {
             return response()->json([
                 'success' => false,
@@ -365,10 +385,14 @@ class KegiatanController extends Controller
             $kegiatan->banner_url = url('storage/' . $kegiatan->banner);
         }
         if ($kegiatan->materi) {
-            $kegiatan->materi_url = url('storage/' . $kegiatan->materi);
+            $kegiatan->materi_url = (str_starts_with($kegiatan->materi, 'http://') || str_starts_with($kegiatan->materi, 'https://'))
+                ? $kegiatan->materi
+                : url('storage/' . $kegiatan->materi);
         }
         if ($kegiatan->virtual_background) {
-            $kegiatan->virtual_background_url = url('storage/' . $kegiatan->virtual_background);
+            $kegiatan->virtual_background_url = (str_starts_with($kegiatan->virtual_background, 'http://') || str_starts_with($kegiatan->virtual_background, 'https://'))
+                ? $kegiatan->virtual_background
+                : url('storage/' . $kegiatan->virtual_background);
         }
         if ($kegiatan->template_sertifikat) {
             $kegiatan->template_sertifikat_url = url('storage/' . $kegiatan->template_sertifikat);
@@ -497,24 +521,36 @@ class KegiatanController extends Controller
 
         // Upload materi baru jika ada
         if ($request->hasFile('materi')) {
-            if ($kegiatan->materi && Storage::disk('public')->exists($kegiatan->materi)) {
+            if ($kegiatan->materi && !str_starts_with($kegiatan->materi, 'http://') && !str_starts_with($kegiatan->materi, 'https://') && Storage::disk('public')->exists($kegiatan->materi)) {
                 Storage::disk('public')->delete($kegiatan->materi);
             }
             $file = $request->file('materi');
             $filename = time() . '_' . $file->getClientOriginalName();
             $path = $file->storeAs('kegiatan/materi', $filename, 'public');
             $data['materi'] = $path;
+        } elseif ($request->has('materi')) {
+            $newMateri = $request->input('materi');
+            if ($kegiatan->materi && $kegiatan->materi !== $newMateri && !str_starts_with($kegiatan->materi, 'http://') && !str_starts_with($kegiatan->materi, 'https://') && Storage::disk('public')->exists($kegiatan->materi)) {
+                Storage::disk('public')->delete($kegiatan->materi);
+            }
+            $data['materi'] = $newMateri;
         }
 
         // Upload virtual_background baru jika ada
         if ($request->hasFile('virtual_background')) {
-            if ($kegiatan->virtual_background && Storage::disk('public')->exists($kegiatan->virtual_background)) {
+            if ($kegiatan->virtual_background && !str_starts_with($kegiatan->virtual_background, 'http://') && !str_starts_with($kegiatan->virtual_background, 'https://') && Storage::disk('public')->exists($kegiatan->virtual_background)) {
                 Storage::disk('public')->delete($kegiatan->virtual_background);
             }
             $file = $request->file('virtual_background');
             $filename = time() . '_' . $file->getClientOriginalName();
             $path = $file->storeAs('kegiatan/virtual_backgrounds', $filename, 'public');
             $data['virtual_background'] = $path;
+        } elseif ($request->has('virtual_background')) {
+            $newVb = $request->input('virtual_background');
+            if ($kegiatan->virtual_background && $kegiatan->virtual_background !== $newVb && !str_starts_with($kegiatan->virtual_background, 'http://') && !str_starts_with($kegiatan->virtual_background, 'https://') && Storage::disk('public')->exists($kegiatan->virtual_background)) {
+                Storage::disk('public')->delete($kegiatan->virtual_background);
+            }
+            $data['virtual_background'] = $newVb;
         }
 
         $kegiatan->update($data);
@@ -524,10 +560,14 @@ class KegiatanController extends Controller
             $kegiatan->banner_url = url('storage/' . $kegiatan->banner);
         }
         if ($kegiatan->materi) {
-            $kegiatan->materi_url = url('storage/' . $kegiatan->materi);
+            $kegiatan->materi_url = (str_starts_with($kegiatan->materi, 'http://') || str_starts_with($kegiatan->materi, 'https://'))
+                ? $kegiatan->materi
+                : url('storage/' . $kegiatan->materi);
         }
         if ($kegiatan->virtual_background) {
-            $kegiatan->virtual_background_url = url('storage/' . $kegiatan->virtual_background);
+            $kegiatan->virtual_background_url = (str_starts_with($kegiatan->virtual_background, 'http://') || str_starts_with($kegiatan->virtual_background, 'https://'))
+                ? $kegiatan->virtual_background
+                : url('storage/' . $kegiatan->virtual_background);
         }
         if ($kegiatan->template_sertifikat) {
             $kegiatan->template_sertifikat_url = url('storage/' . $kegiatan->template_sertifikat);
@@ -560,12 +600,12 @@ class KegiatanController extends Controller
         }
 
         // Hapus materi jika ada
-        if ($kegiatan->materi && Storage::disk('public')->exists($kegiatan->materi)) {
+        if ($kegiatan->materi && !str_starts_with($kegiatan->materi, 'http://') && !str_starts_with($kegiatan->materi, 'https://') && Storage::disk('public')->exists($kegiatan->materi)) {
             Storage::disk('public')->delete($kegiatan->materi);
         }
 
         // Hapus virtual_background jika ada
-        if ($kegiatan->virtual_background && Storage::disk('public')->exists($kegiatan->virtual_background)) {
+        if ($kegiatan->virtual_background && !str_starts_with($kegiatan->virtual_background, 'http://') && !str_starts_with($kegiatan->virtual_background, 'https://') && Storage::disk('public')->exists($kegiatan->virtual_background)) {
             Storage::disk('public')->delete($kegiatan->virtual_background);
         }
 
