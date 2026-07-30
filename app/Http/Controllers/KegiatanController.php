@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use SimpleSoftwareIO\QrCode\Facades\QrCode;
 
 class KegiatanController extends Controller
 {
@@ -67,13 +68,13 @@ class KegiatanController extends Controller
             }
         }
 
-        // Filter whether desain_sertifikat exists (butuh_sertifikat=true) or is null
+        // Filter whether butuh_sertifikat column is true or false
         if ($request->has('butuh_sertifikat')) {
             $val = $request->get('butuh_sertifikat');
             if ($val === '1' || $val === 'true' || $val === 1 || $val === true) {
-                $query->whereNotNull('desain_sertifikat');
+                $query->where('butuh_sertifikat', true);
             } elseif ($val === '0' || $val === 'false' || $val === 0 || $val === false) {
-                $query->whereNull('desain_sertifikat');
+                $query->where('butuh_sertifikat', false);
             }
         }
 
@@ -149,6 +150,7 @@ class KegiatanController extends Controller
             'youtube' => 'nullable|url|max:255',
             'desain_sertifikat' => 'nullable|string',
             'form_evaluasi' => 'nullable|string',
+            'butuh_sertifikat' => 'sometimes|nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -415,6 +417,7 @@ class KegiatanController extends Controller
             'youtube' => 'sometimes|nullable|url|max:255',
             'desain_sertifikat' => 'sometimes|nullable|string',
             'form_evaluasi' => 'sometimes|nullable|string',
+            'butuh_sertifikat' => 'sometimes|nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -617,5 +620,48 @@ class KegiatanController extends Controller
                 'message' => 'Gagal generate sertifikat: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Generate QR Code for presensi & survei link of a Kegiatan.
+     *
+     * GET /kegiatan/{id}/qrcode-presensi
+     */
+    public function qrCodePresensi(Request $request, string $id)
+    {
+        $kegiatan = Kegiatan::find($id);
+
+        if (! $kegiatan) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Kegiatan tidak ditemukan',
+            ], 404);
+        }
+
+        $frontendUrl = config('app.frontend_url', env('VITE_BASE_URL', 'http://localhost:5173'));
+        $frontendUrl = rtrim($frontendUrl, '/');
+        $presensiUrl = "{$frontendUrl}/form-selection/{$id}";
+
+        // Format QR Code identical to certificate QR code
+        $qr = QrCode::format('png')->size(400)->margin(1);
+
+        $logoPath = public_path('logo-dpd-bgwhite-60x60.png');
+        if (file_exists($logoPath)) {
+            $qr = $qr->merge($logoPath, 0.20, true);
+        }
+
+        $pngData = $qr->generate($presensiUrl);
+
+        if ($request->has('download')) {
+            $slugName = Str::slug($kegiatan->nama_kegiatan ?: 'kegiatan');
+            $filename = "QR-Presensi-{$slugName}.png";
+
+            return response($pngData, 200)
+                ->header('Content-Type', 'image/png')
+                ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
+        }
+
+        return response($pngData, 200)
+            ->header('Content-Type', 'image/png');
     }
 }

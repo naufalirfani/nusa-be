@@ -36,6 +36,7 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->gro
     Route::post('kegiatan/{id}', [KegiatanController::class, 'update']);
     Route::delete('kegiatan/{id}', [KegiatanController::class, 'destroy']);
     Route::get('kegiatan/{id}/test-certificate', [KegiatanController::class, 'testCertificate']);
+    Route::get('kegiatan/{id}/qrcode-presensi', [KegiatanController::class, 'qrCodePresensi']);
 
     // Kegiatan Pegawai CRUD routes
     Route::get('kegiatan-pegawai', [KegiatanPegawaiController::class, 'index']);

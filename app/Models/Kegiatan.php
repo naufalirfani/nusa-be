@@ -36,6 +36,7 @@ class Kegiatan extends Model
         'desain_sertifikat',
         'template_sertifikat',
         'form_evaluasi',
+        'butuh_sertifikat',
     ];
 
     protected $casts = [
@@ -43,6 +44,7 @@ class Kegiatan extends Model
         'tanggal' => 'date:Y-m-d',
         'desain_sertifikat' => 'json',
         'form_evaluasi' => 'json',
+        'butuh_sertifikat' => 'boolean',
     ];
 
     protected static function booted()
