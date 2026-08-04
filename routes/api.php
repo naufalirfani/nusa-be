@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\KegiatanController;
 use App\Http\Controllers\KegiatanPegawaiController;
+use App\Http\Controllers\KegiatanEvaluasiNarasumberController;
 use App\Http\Controllers\MediaController;
 use App\Http\Controllers\CmbApiController;
 use App\Http\Controllers\CertificateController;
@@ -45,6 +46,11 @@ Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->gro
     Route::put('kegiatan-pegawai/{id}', [KegiatanPegawaiController::class, 'update']);
     Route::delete('kegiatan-pegawai/{id}', [KegiatanPegawaiController::class, 'destroy']);
     Route::post('kegiatan-pegawai/{id}/regenerate-certificate', [KegiatanPegawaiController::class, 'regenerateCertificate']);
+
+    // Kegiatan Evaluasi Narasumber CRUD routes
+    Route::get('kegiatan-evaluasi-narasumber', [KegiatanEvaluasiNarasumberController::class, 'index']);
+    Route::post('kegiatan-evaluasi-narasumber', [KegiatanEvaluasiNarasumberController::class, 'store']);
+    Route::delete('kegiatan-evaluasi-narasumber/{id}', [KegiatanEvaluasiNarasumberController::class, 'destroy']);
 
     // Penilaian Pegawai CRUD routes
     Route::get('penilaian-pegawai', [PenilaianPegawaiController::class, 'index']);

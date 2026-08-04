@@ -94,7 +94,7 @@ class PenilaianPegawaiController extends Controller
                 foreach ($required as $field) {
                     $query->whereNotNull("penilaian->{$field}");
                 }
-            } elseif ($status === 'partial' || $status === 'belum_selesai') { // Belum selesai (partial)
+            } elseif ($status === 'partial') { // Diisi sebagian (partial)
                 if ($driver === 'pgsql') {
                     $query->whereNotNull('penilaian')
                         ->whereRaw("CAST(penilaian AS text) != ''")
@@ -122,6 +122,26 @@ class PenilaianPegawaiController extends Controller
                         }
                     });
                 }
+            } elseif ($status === 'pending' || $status === 'belum_selesai' || $status === 'incomplete') { // Belum selesai (empty ATAU partial)
+                $query->where(function ($q) use ($required, $driver) {
+                    if ($driver === 'pgsql') {
+                        $q->whereNull('penilaian')
+                            ->orWhereRaw("CAST(penilaian AS text) = ''")
+                            ->orWhereRaw("CAST(penilaian AS text) = '[]'")
+                            ->orWhereRaw("CAST(penilaian AS text) = '{}'");
+                    } else {
+                        $q->whereNull('penilaian')
+                            ->orWhere('penilaian', '')
+                            ->orWhere('penilaian', '[]')
+                            ->orWhere('penilaian', '{}');
+                    }
+
+                    if (!empty($required)) {
+                        foreach ($required as $field) {
+                            $q->orWhereNull("penilaian->{$field}");
+                        }
+                    }
+                });
             }
         }
 

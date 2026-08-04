@@ -36,16 +36,44 @@ class Kegiatan extends Model
         'desain_sertifikat',
         'template_sertifikat',
         'form_evaluasi',
+        'form_evaluasi_narasumber',
         'butuh_sertifikat',
+        'aksesibilitas',
+        'aksesibilitas_narasumber',
     ];
+
+    protected $appends = ['narasumber_list'];
 
     protected $casts = [
         // cast tanggal to a formatted date string to avoid UTC offset in JSON
         'tanggal' => 'date:Y-m-d',
         'desain_sertifikat' => 'json',
         'form_evaluasi' => 'json',
+        'form_evaluasi_narasumber' => 'json',
         'butuh_sertifikat' => 'boolean',
     ];
+
+    public function getNarasumberListAttribute(): array
+    {
+        $raw = $this->attributes['narasumber'] ?? null;
+        if (empty($raw)) {
+            return [];
+        }
+
+        if (is_string($raw)) {
+            $decoded = json_decode($raw, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return [
+            [
+                'narasumber' => $raw,
+                'asal_narasumber' => $this->attributes['asal_narasumber'] ?? 'Internal',
+            ]
+        ];
+    }
 
     protected static function booted()
     {

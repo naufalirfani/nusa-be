@@ -78,6 +78,10 @@ class KegiatanController extends Controller
             }
         }
 
+        if ($request->filled('aksesibilitas')) {
+            $query->where('aksesibilitas', $request->get('aksesibilitas'));
+        }
+
         // Sorting berdasarkan parameter
         $sort = $request->get('sort', 'newest');
 
@@ -142,8 +146,8 @@ class KegiatanController extends Controller
             'nama_kegiatan' => 'required|string|max:255',
             'judul_tema' => 'required|string|max:255',
             'deskripsi' => 'nullable|string',
-            'narasumber' => 'required|string|max:255',
-            'asal_narasumber' => 'required|in:Internal,Eksternal',
+            'narasumber' => 'nullable|string',
+            'asal_narasumber' => 'nullable|in:Internal,Eksternal',
             'moderator' => 'nullable|string|max:255',
             'asal_moderator' => 'nullable|in:Internal,Eksternal',
             'tempat' => 'required|string|max:255',
@@ -154,7 +158,11 @@ class KegiatanController extends Controller
             'youtube' => 'nullable|url|max:255',
             'desain_sertifikat' => 'nullable|string',
             'form_evaluasi' => 'nullable|string',
+            'form_evaluasi_narasumber' => 'nullable|string',
             'butuh_sertifikat' => 'sometimes|nullable|boolean',
+            'aksesibilitas' => 'nullable|string|in:Internal,Eksternal,Internal dan Eksternal',
+            'aksesibilitas_narasumber' => 'nullable|string|in:Internal,Eksternal,Internal dan Eksternal',
+            'narasumber_list' => 'nullable',
         ]);
 
         if ($validator->fails()) {
@@ -194,6 +202,38 @@ class KegiatanController extends Controller
                         'success' => false,
                         'errors' => ['form_evaluasi' => ['Format JSON tidak valid']]
                     ], 422);
+                }
+            }
+        }
+
+        // Handle form_evaluasi_narasumber JSON dari form-data
+        if ($request->has('form_evaluasi_narasumber')) {
+            $formEvaluasiNarasumber = $request->input('form_evaluasi_narasumber');
+            if (is_string($formEvaluasiNarasumber)) {
+                $decoded = json_decode($formEvaluasiNarasumber, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $data['form_evaluasi_narasumber'] = $decoded;
+                }
+            } elseif (is_array($formEvaluasiNarasumber)) {
+                $data['form_evaluasi_narasumber'] = $formEvaluasiNarasumber;
+            }
+        }
+
+        // Handle narasumber_list dari form-data
+        if ($request->has('narasumber_list')) {
+            $nList = $request->input('narasumber_list');
+            if (is_string($nList)) {
+                $decoded = json_decode($nList, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $data['narasumber'] = json_encode($decoded);
+                    if (!empty($decoded[0]['asal_narasumber'])) {
+                        $data['asal_narasumber'] = $decoded[0]['asal_narasumber'];
+                    }
+                }
+            } elseif (is_array($nList)) {
+                $data['narasumber'] = json_encode($nList);
+                if (!empty($nList[0]['asal_narasumber'])) {
+                    $data['asal_narasumber'] = $nList[0]['asal_narasumber'];
                 }
             }
         }
@@ -429,8 +469,8 @@ class KegiatanController extends Controller
             'nama_kegiatan' => 'sometimes|required|string|max:255',
             'judul_tema' => 'sometimes|required|string|max:255',
             'deskripsi' => 'sometimes|nullable|string',
-            'narasumber' => 'sometimes|required|string|max:255',
-            'asal_narasumber' => 'sometimes|required|in:Internal,Eksternal',
+            'narasumber' => 'sometimes|nullable|string',
+            'asal_narasumber' => 'sometimes|nullable|in:Internal,Eksternal',
             'moderator' => 'sometimes|nullable|string|max:255',
             'asal_moderator' => 'sometimes|nullable|in:Internal,Eksternal',
             'tempat' => 'sometimes|required|string|max:255',
@@ -441,7 +481,11 @@ class KegiatanController extends Controller
             'youtube' => 'sometimes|nullable|url|max:255',
             'desain_sertifikat' => 'sometimes|nullable|string',
             'form_evaluasi' => 'sometimes|nullable|string',
+            'form_evaluasi_narasumber' => 'sometimes|nullable|string',
             'butuh_sertifikat' => 'sometimes|nullable|boolean',
+            'aksesibilitas' => 'sometimes|nullable|string|in:Internal,Eksternal,Internal dan Eksternal',
+            'aksesibilitas_narasumber' => 'sometimes|nullable|string|in:Internal,Eksternal,Internal dan Eksternal',
+            'narasumber_list' => 'sometimes|nullable',
         ]);
 
         if ($validator->fails()) {
@@ -481,6 +525,38 @@ class KegiatanController extends Controller
                         'success' => false,
                         'errors' => ['form_evaluasi' => ['Format JSON tidak valid']]
                     ], 422);
+                }
+            }
+        }
+
+        // Handle form_evaluasi_narasumber JSON dari form-data
+        if ($request->has('form_evaluasi_narasumber')) {
+            $formEvaluasiNarasumber = $request->input('form_evaluasi_narasumber');
+            if (is_string($formEvaluasiNarasumber)) {
+                $decoded = json_decode($formEvaluasiNarasumber, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $data['form_evaluasi_narasumber'] = $decoded;
+                }
+            } elseif (is_array($formEvaluasiNarasumber)) {
+                $data['form_evaluasi_narasumber'] = $formEvaluasiNarasumber;
+            }
+        }
+
+        // Handle narasumber_list dari form-data
+        if ($request->has('narasumber_list')) {
+            $nList = $request->input('narasumber_list');
+            if (is_string($nList)) {
+                $decoded = json_decode($nList, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $data['narasumber'] = json_encode($decoded);
+                    if (!empty($decoded[0]['asal_narasumber'])) {
+                        $data['asal_narasumber'] = $decoded[0]['asal_narasumber'];
+                    }
+                }
+            } elseif (is_array($nList)) {
+                $data['narasumber'] = json_encode($nList);
+                if (!empty($nList[0]['asal_narasumber'])) {
+                    $data['asal_narasumber'] = $nList[0]['asal_narasumber'];
                 }
             }
         }
