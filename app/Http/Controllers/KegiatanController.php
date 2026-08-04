@@ -756,7 +756,13 @@ class KegiatanController extends Controller
 
         $frontendUrl = config('app.frontend_url', env('VITE_BASE_URL', 'http://localhost:5173'));
         $frontendUrl = rtrim($frontendUrl, '/');
-        $presensiUrl = "{$frontendUrl}/form-selection/{$id}";
+
+        // Determine the target URL based on the requested type
+        if ($request->get('type') === 'narasumber') {
+            $presensiUrl = "{$frontendUrl}/form-selection-narasumber/{$id}";
+        } else {
+            $presensiUrl = "{$frontendUrl}/form-selection/{$id}";
+        }
 
         // Format QR Code identical to certificate QR code
         $qr = QrCode::format('png')->size(400)->margin(1);
