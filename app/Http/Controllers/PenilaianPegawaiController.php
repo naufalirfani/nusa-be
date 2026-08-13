@@ -666,6 +666,21 @@ class PenilaianPegawaiController extends Controller
             $desired[$nipPegawai] = $mapping;
         }
 
+        if (!empty($allNipPegawais)) {
+            $activeNipPegawais = PenilaianPegawai::where('periode', $periode)
+                ->whereIn('nip_pegawai', $allNipPegawais)
+                ->where('active', true)
+                ->pluck('nip_pegawai')
+                ->unique()
+                ->toArray();
+
+            if (!empty($activeNipPegawais)) {
+                $activeFlip = array_flip($activeNipPegawais);
+                $desired = array_diff_key($desired, $activeFlip);
+                $allNipPegawais = array_values(array_diff($allNipPegawais, $activeNipPegawais));
+            }
+        }
+
         $count = count($allNipPegawais);
 
         DB::transaction(function () use ($periode, $desired, $allNipPegawais) {
