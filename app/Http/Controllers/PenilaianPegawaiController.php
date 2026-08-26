@@ -666,6 +666,7 @@ class PenilaianPegawaiController extends Controller
             $desired[$nipPegawai] = $mapping;
         }
 
+        $activeNipMap = [];
         if (!empty($allNipPegawais)) {
             $activeNipPegawais = PenilaianPegawai::where('periode', $periode)
                 ->whereIn('nip_pegawai', $allNipPegawais)
@@ -675,17 +676,16 @@ class PenilaianPegawaiController extends Controller
                 ->toArray();
 
             if (!empty($activeNipPegawais)) {
-                $activeFlip = array_flip($activeNipPegawais);
-                $desired = array_diff_key($desired, $activeFlip);
-                $allNipPegawais = array_values(array_diff($allNipPegawais, $activeNipPegawais));
+                $activeNipMap = array_flip($activeNipPegawais);
             }
         }
 
         $count = count($allNipPegawais);
 
-        DB::transaction(function () use ($periode, $desired, $allNipPegawais) {
-            if (!empty($desired)) {
-                $desiredChunks = array_chunk($desired, 100, true);
+        DB::transaction(function () use ($periode, $desired, $allNipPegawais, $activeNipMap) {
+            $nonActiveDesired = array_diff_key($desired, $activeNipMap);
+            if (!empty($nonActiveDesired)) {
+                $desiredChunks = array_chunk($nonActiveDesired, 100, true);
                 foreach ($desiredChunks as $chunk) {
                     PenilaianPegawai::where('periode', $periode)
                         ->where(function ($q) use ($chunk) {
@@ -705,33 +705,62 @@ class PenilaianPegawaiController extends Controller
             }
 
             // Bulk select existing records to minimize queries
-            $existingRecords = PenilaianPegawai::withTrashed()
+            $existingRecordsGrouped = PenilaianPegawai::withTrashed()
                 ->where('periode', $periode)
                 ->whereIn('nip_pegawai', $allNipPegawais)
                 ->get()
-                ->groupBy(function ($item) {
-                    return $item->nip_pegawai . '_' . $item->nip_penilai;
-                });
+                ->groupBy('nip_pegawai');
 
             $newRecords = [];
             $now = now();
 
             foreach ($desired as $nipPegawai => $penilais) {
-                foreach ($penilais as $nipPenilai => $role) {
-                    $key = $nipPegawai . '_' . $nipPenilai;
-                    $existing = $existingRecords->get($key)?->first();
+                $isActivePegawai = isset($activeNipMap[$nipPegawai]);
+                $pegawaiRecords = $existingRecordsGrouped->get($nipPegawai) ?? collect();
 
-                    if ($existing) {
-                        if ($existing->trashed()) {
-                            continue;
+                $existingPenilaiNips = [];
+                $roleCounts = [];
+
+                foreach ($pegawaiRecords as $rec) {
+                    if ($rec->trashed()) {
+                        continue;
+                    }
+                    $existingPenilaiNips[$rec->nip_penilai] = true;
+                    $roleKey = $this->getNormalizedRoleKey($rec->role);
+                    $roleCounts[$roleKey] = ($roleCounts[$roleKey] ?? 0) + 1;
+                }
+
+                foreach ($penilais as $nipPenilai => $role) {
+                    if (isset($existingPenilaiNips[$nipPenilai])) {
+                        if (!$isActivePegawai) {
+                            $existingRec = $pegawaiRecords->firstWhere('nip_penilai', $nipPenilai);
+                            if ($existingRec && !$existingRec->trashed()) {
+                                if ($existingRec->role !== $role) {
+                                    $existingRec->update(['role' => $role]);
+                                }
+                            }
                         }
-                        $newActive = $existing->active ? true : false;
-                        if ($existing->role !== $role || $existing->active !== $newActive) {
-                            $existing->update([
-                                'role' => $role,
-                                'active' => $newActive,
-                            ]);
-                        }
+                        continue;
+                    }
+
+                    $roleKey = $this->getNormalizedRoleKey($role);
+                    $maxAllowed = $this->getMaxAllowedForRole($role);
+                    $currentCount = $roleCounts[$roleKey] ?? 0;
+
+                    if ($currentCount >= $maxAllowed) {
+                        continue;
+                    }
+
+                    $trashedRec = $pegawaiRecords->first(fn($item) => $item->nip_penilai === $nipPenilai && $item->trashed());
+                    if ($trashedRec) {
+                        $trashedRec->restore();
+                        $trashedRec->update([
+                            'role' => $role,
+                            'active' => false,
+                            'is_manual' => false,
+                        ]);
+                        $existingPenilaiNips[$nipPenilai] = true;
+                        $roleCounts[$roleKey] = $currentCount + 1;
                     } else {
                         $newRecords[] = [
                             'id' => (string) \Illuminate\Support\Str::uuid(),
@@ -744,6 +773,8 @@ class PenilaianPegawaiController extends Controller
                             'created_at' => $now,
                             'updated_at' => $now,
                         ];
+                        $existingPenilaiNips[$nipPenilai] = true;
+                        $roleCounts[$roleKey] = $currentCount + 1;
                     }
                 }
             }
@@ -866,6 +897,24 @@ class PenilaianPegawaiController extends Controller
         }
 
         return $result;
+    }
+
+    private function getNormalizedRoleKey(?string $role): string
+    {
+        if (empty($role)) {
+            return '';
+        }
+        $clean = strtolower(trim($role));
+        return str_replace(['_', ' '], '', $clean);
+    }
+
+    private function getMaxAllowedForRole(?string $role): int
+    {
+        $key = $this->getNormalizedRoleKey($role);
+        if (in_array($key, ['bawahan', 'rekankerja'])) {
+            return 4;
+        }
+        return 1;
     }
 
     private function getTemplateQuestions(): array
