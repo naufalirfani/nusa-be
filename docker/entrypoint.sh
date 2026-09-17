@@ -26,6 +26,7 @@ PHP_FPM_MAX_CHILDREN=${PHP_FPM_MAX_CHILDREN:-50}
 PHP_FPM_START_SERVERS=${PHP_FPM_START_SERVERS:-10}
 PHP_FPM_MIN_SPARE_SERVERS=${PHP_FPM_MIN_SPARE_SERVERS:-5}
 PHP_FPM_MAX_SPARE_SERVERS=${PHP_FPM_MAX_SPARE_SERVERS:-20}
+PHP_FPM_BACKLOG=${PHP_FPM_BACKLOG:-4096}
 
 cat > /usr/local/etc/php/conf.d/upload-limits.ini << EOF
 upload_max_filesize = 500M
@@ -35,8 +36,16 @@ max_execution_time = 600
 max_input_time = 600
 EOF
 
+# Update www.conf if present
+if [ -f /usr/local/etc/php-fpm.d/www.conf ]; then
+    sed -i "s/^pm.max_children = .*/pm.max_children = ${PHP_FPM_MAX_CHILDREN}/" /usr/local/etc/php-fpm.d/www.conf 2>/dev/null || true
+    sed -i "s/^;*listen.backlog = .*/listen.backlog = ${PHP_FPM_BACKLOG}/" /usr/local/etc/php-fpm.d/www.conf 2>/dev/null || true
+fi
+
 cat > /usr/local/etc/php-fpm.d/zz-docker.conf << EOF
 [www]
+listen = 127.0.0.1:9000
+listen.backlog = ${PHP_FPM_BACKLOG}
 pm = dynamic
 pm.max_children = ${PHP_FPM_MAX_CHILDREN}
 pm.start_servers = ${PHP_FPM_START_SERVERS}
@@ -46,9 +55,11 @@ pm.max_requests = 1000
 pm.process_idle_timeout = 10s
 request_terminate_timeout = 600s
 rlimit_files = 65535
+catch_workers_output = yes
+decorate_workers_output = no
 EOF
 
-echo "✅ PHP upload & memory limits configured (memory_limit = ${PHP_MEMORY_LIMIT}, FPM max_children = ${PHP_FPM_MAX_CHILDREN})!"
+echo "✅ PHP upload & memory limits configured (memory_limit = ${PHP_MEMORY_LIMIT}, FPM max_children = ${PHP_FPM_MAX_CHILDREN}, listen.backlog = ${PHP_FPM_BACKLOG})!"
 
 # Fix permissions untuk mounted volumes (karena volume mount override Dockerfile permissions)
 echo "👉 Fixing storage and bootstrap/cache permissions..."

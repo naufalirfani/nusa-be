@@ -80,8 +80,12 @@ RUN echo "opcache.enable = 1" > /usr/local/etc/php/conf.d/opcache.ini \
  && echo "opcache.jit = tracing" >> /usr/local/etc/php/conf.d/opcache.ini \
  && echo "opcache.jit_buffer_size = 64M" >> /usr/local/etc/php/conf.d/opcache.ini
 
-# Configure PHP-FPM pool concurrency & auto-recycle to prevent memory leaks
-RUN echo "[www]" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
+# Configure PHP-FPM pool concurrency & auto-recycle to prevent memory leaks and request queuing
+RUN sed -i "s/^pm.max_children = .*/pm.max_children = 50/" /usr/local/etc/php-fpm.d/www.conf 2>/dev/null || true \
+ && sed -i "s/^;*listen.backlog = .*/listen.backlog = 4096/" /usr/local/etc/php-fpm.d/www.conf 2>/dev/null || true \
+ && echo "[www]" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
+ && echo "listen = 127.0.0.1:9000" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
+ && echo "listen.backlog = 4096" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
  && echo "pm = dynamic" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
  && echo "pm.max_children = 50" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
  && echo "pm.start_servers = 10" >> /usr/local/etc/php-fpm.d/zz-docker.conf \

@@ -20,6 +20,7 @@ services:
       - PHP_FPM_START_SERVERS=10
       - PHP_FPM_MIN_SPARE_SERVERS=5
       - PHP_FPM_MAX_SPARE_SERVERS=20
+      - PHP_FPM_BACKLOG=4096
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
