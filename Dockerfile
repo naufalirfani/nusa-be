@@ -57,12 +57,40 @@ RUN rm -rf bootstrap/cache/*.php \
 # Configure PHP timezone
 RUN echo "date.timezone = Asia/Jakarta" > /usr/local/etc/php/conf.d/timezone.ini
 
-# Configure PHP upload limits
-RUN echo "upload_max_filesize = 100M" > /usr/local/etc/php/conf.d/uploads.ini \
- && echo "post_max_size = 100M" >> /usr/local/etc/php/conf.d/uploads.ini \
- && echo "memory_limit = 512M" >> /usr/local/etc/php/conf.d/uploads.ini \
- && echo "max_execution_time = 300" >> /usr/local/etc/php/conf.d/uploads.ini \
- && echo "max_input_time = 300" >> /usr/local/etc/php/conf.d/uploads.ini
+# Configure PHP upload and memory limits (1024M memory limit to prevent exhaustion on heavy PDF/exports)
+RUN echo "upload_max_filesize = 500M" > /usr/local/etc/php/conf.d/uploads.ini \
+ && echo "post_max_size = 500M" >> /usr/local/etc/php/conf.d/uploads.ini \
+ && echo "memory_limit = 1024M" >> /usr/local/etc/php/conf.d/uploads.ini \
+ && echo "max_execution_time = 600" >> /usr/local/etc/php/conf.d/uploads.ini \
+ && echo "max_input_time = 600" >> /usr/local/etc/php/conf.d/uploads.ini \
+ && echo "max_input_vars = 10000" >> /usr/local/etc/php/conf.d/uploads.ini \
+ && echo "realpath_cache_size = 4096K" >> /usr/local/etc/php/conf.d/uploads.ini \
+ && echo "realpath_cache_ttl = 600" >> /usr/local/etc/php/conf.d/uploads.ini
+
+# Configure OPcache for maximum production performance
+RUN echo "opcache.enable = 1" > /usr/local/etc/php/conf.d/opcache.ini \
+ && echo "opcache.enable_cli = 0" >> /usr/local/etc/php/conf.d/opcache.ini \
+ && echo "opcache.memory_consumption = 256" >> /usr/local/etc/php/conf.d/opcache.ini \
+ && echo "opcache.interned_strings_buffer = 32" >> /usr/local/etc/php/conf.d/opcache.ini \
+ && echo "opcache.max_accelerated_files = 30000" >> /usr/local/etc/php/conf.d/opcache.ini \
+ && echo "opcache.validate_timestamps = 0" >> /usr/local/etc/php/conf.d/opcache.ini \
+ && echo "opcache.revalidate_freq = 0" >> /usr/local/etc/php/conf.d/opcache.ini \
+ && echo "opcache.save_comments = 1" >> /usr/local/etc/php/conf.d/opcache.ini \
+ && echo "opcache.fast_shutdown = 1" >> /usr/local/etc/php/conf.d/opcache.ini \
+ && echo "opcache.jit = tracing" >> /usr/local/etc/php/conf.d/opcache.ini \
+ && echo "opcache.jit_buffer_size = 64M" >> /usr/local/etc/php/conf.d/opcache.ini
+
+# Configure PHP-FPM pool concurrency & auto-recycle to prevent memory leaks
+RUN echo "[www]" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
+ && echo "pm = dynamic" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
+ && echo "pm.max_children = 50" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
+ && echo "pm.start_servers = 10" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
+ && echo "pm.min_spare_servers = 5" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
+ && echo "pm.max_spare_servers = 20" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
+ && echo "pm.max_requests = 1000" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
+ && echo "pm.process_idle_timeout = 10s" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
+ && echo "request_terminate_timeout = 600s" >> /usr/local/etc/php-fpm.d/zz-docker.conf \
+ && echo "rlimit_files = 65535" >> /usr/local/etc/php-fpm.d/zz-docker.conf
 
 # Copy config files for nginx/supervisord/entrypoint
 COPY docker/nginx-laravel.conf /etc/nginx/http.d/laravel.conf

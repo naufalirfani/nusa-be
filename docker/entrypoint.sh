@@ -20,16 +20,15 @@ else
     echo "✅ PHP security settings already configured!"
 fi
 
-# Configure upload limits so Laravel receives larger multipart requests.
-if [ ! -f /usr/local/etc/php/conf.d/upload-limits.ini ]; then
-    cat > /usr/local/etc/php/conf.d/upload-limits.ini << EOF
+# Configure upload & memory limits so Laravel receives larger multipart requests without memory limit exhaustion.
+cat > /usr/local/etc/php/conf.d/upload-limits.ini << EOF
 upload_max_filesize = 500M
 post_max_size = 500M
+memory_limit = 1024M
+max_execution_time = 600
+max_input_time = 600
 EOF
-    echo "✅ PHP upload limits configured!"
-else
-    echo "✅ PHP upload limits already configured!"
-fi
+echo "✅ PHP upload & memory limits configured (memory_limit = 1024M, upload = 500M)!"
 
 # Fix permissions untuk mounted volumes (karena volume mount override Dockerfile permissions)
 echo "👉 Fixing storage and bootstrap/cache permissions..."
