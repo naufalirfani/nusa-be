@@ -13,9 +13,9 @@ use App\Http\Controllers\FeedbackTemplateController;
 
 
 // Admin Authentication Routes (no middleware)
-Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->post('admin/login', [AuthController::class, 'login']);
-Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->post('admin/logout', [AuthController::class, 'logout']);
-Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->post('admin/verify', [AuthController::class, 'verify']);
+Route::middleware(['verify.api.token', 'whitelist.ip'])->post('admin/login', [AuthController::class, 'login']);
+Route::middleware(['verify.api.token', 'whitelist.ip'])->post('admin/logout', [AuthController::class, 'logout']);
+Route::middleware(['verify.api.token', 'whitelist.ip'])->post('admin/verify', [AuthController::class, 'verify']);
 
 // Public certificate verification route (no auth required)
 // Accepts both new UUID-based identifiers and legacy verification tokens.
@@ -23,7 +23,7 @@ Route::get('sertifikat/verify/{identifier}', [CertificateController::class, 'ver
 Route::get('sertifikat/download/{identifier}', [CertificateController::class, 'download']);
 
 // Apply API token, logging and IP whitelist middleware to all API routes
-Route::middleware(['log.api.requests', 'verify.api.token', 'whitelist.ip'])->group(function () {
+Route::middleware(['verify.api.token', 'whitelist.ip'])->group(function () {
     // API routes will be added here
 
     // Kegiatan CRUD routes (explicit so update can be POST with multipart/form-data)

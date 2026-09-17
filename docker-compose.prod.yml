@@ -4,15 +4,42 @@ services:
       context: .
       dockerfile: Dockerfile
     image: nusa-be:latest
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     env_file:
       - .env-docker
+    environment:
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - PHP_MEMORY_LIMIT=1024M
+      - PHP_FPM_MAX_CHILDREN=50
+      - PHP_FPM_START_SERVERS=10
+      - PHP_FPM_MIN_SPARE_SERVERS=5
+      - PHP_FPM_MAX_SPARE_SERVERS=20
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
       - "8004:8080"
-    restart: unless-stopped
     networks:
       - nusa
+
+    # Shared memory size (krusial untuk LibreOffice headless dan Imagick)
+    shm_size: '512m'
+
+    # Resource limits untuk production (disesuaikan untuk traffic tinggi)
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+    mem_limit: 4g
+    mem_reservation: 1g
+
     volumes:
       - './storage:/var/www/html/storage'
       - './bootstrap/cache:/var/www/html/bootstrap/cache'
@@ -20,12 +47,32 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+
   redis:
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     env_file:
       - .env-docker
     image: "redis:alpine"
+    # Production Redis settings (dinaikkan agar cache dan session tidak cepat ter-evict saat diakses banyak orang)
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --save 900 1 --save 300 10 --save 60 10000
     ports:
       - "6383:6379"
+
+    # Resource limits untuk production
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+    mem_limit: 1g
+    mem_reservation: 256m
+
     volumes:
       - "nusa-redis:/data"
     networks:
@@ -37,11 +84,11 @@ services:
         - ping
       retries: 3
       timeout: 5s
-      
+
 networks:
-    nusa:
-        driver: bridge
+  nusa:
+    driver: bridge
 
 volumes:
-    nusa-redis:
-        driver: local
+  nusa-redis:
+    driver: local
