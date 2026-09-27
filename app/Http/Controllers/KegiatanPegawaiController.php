@@ -136,29 +136,57 @@ class KegiatanPegawaiController extends Controller
         }
 
         try {
-            // Create kegiatan pegawai
-            $kegiatanPegawai = KegiatanPegawai::create([
-                'kegiatan_id' => $request->kegiatan_id,
-                'nip' => $request->nip,
-                'isi_form' => $request->isi_form,
-            ]);
+            $nip = trim((string) $request->nip);
+            $isValidNip = $nip !== '' && $nip !== '-' && strtolower($nip) !== 'umum' && strtolower($nip) !== 'null';
 
-            // Generate certificate
-            try {
-                $this->certificateService->generateCertificate($kegiatanPegawai);
-            } catch (\Exception $e) {
-                // Log error but don't fail the creation
-                Log::error('Certificate generation failed: ' . $e->getMessage());
+            $existing = null;
+            if ($isValidNip) {
+                $existing = KegiatanPegawai::where('kegiatan_id', $request->kegiatan_id)
+                    ->where(function ($q) use ($nip) {
+                        $q->where('nip', $nip)
+                          ->orWhereRaw("(isi_form->>'nip_no_absen') = ?", [$nip]);
+                    })
+                    ->orderBy('created_at', 'asc')
+                    ->first();
+            }
+
+            if ($existing) {
+                $existingIsiForm = is_array($existing->isi_form) ? $existing->isi_form : [];
+                $existing->nip = $nip;
+                $existing->isi_form = array_merge($existingIsiForm, $request->isi_form);
+                $existing->save();
+                $kegiatanPegawai = $existing;
+                $isUpdated = true;
+            } else {
+                // Create kegiatan pegawai
+                $kegiatanPegawai = KegiatanPegawai::create([
+                    'kegiatan_id' => $request->kegiatan_id,
+                    'nip' => $nip !== '' ? $nip : $request->nip,
+                    'isi_form' => $request->isi_form,
+                ]);
+                $isUpdated = false;
             }
 
             // Load relationship
             $kegiatanPegawai->load('kegiatan');
 
+            // Generate / regenerate certificate
+            if (! $kegiatanPegawai->kegiatan || $kegiatanPegawai->kegiatan->butuh_sertifikat) {
+                try {
+                    $this->certificateService->generateCertificate($kegiatanPegawai);
+                } catch (\Exception $e) {
+                    // Log error but don't fail the creation
+                    Log::error('Certificate generation failed: ' . $e->getMessage());
+                }
+            }
+
             return response()->json([
                 'success' => true,
-                'message' => 'Data kegiatan pegawai berhasil ditambahkan',
+                'message' => $isUpdated
+                    ? 'Data kegiatan pegawai berhasil diperbarui dan sertifikat digenerate ulang'
+                    : 'Data kegiatan pegawai berhasil ditambahkan',
                 'data' => $kegiatanPegawai,
-            ], 201);
+            ], $isUpdated ? 200 : 201);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

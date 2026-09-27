@@ -50,6 +50,7 @@ Route::middleware(['verify.api.token', 'whitelist.ip'])->group(function () {
     // Kegiatan Evaluasi Narasumber CRUD routes
     Route::get('kegiatan-evaluasi-narasumber', [KegiatanEvaluasiNarasumberController::class, 'index']);
     Route::post('kegiatan-evaluasi-narasumber', [KegiatanEvaluasiNarasumberController::class, 'store']);
+    Route::post('kegiatan-evaluasi-narasumber/generate-certificates', [KegiatanEvaluasiNarasumberController::class, 'generateCertificates']);
     Route::delete('kegiatan-evaluasi-narasumber/{id}', [KegiatanEvaluasiNarasumberController::class, 'destroy']);
 
     // Penilaian Pegawai CRUD routes

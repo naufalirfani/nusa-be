@@ -76,6 +76,17 @@ class CertificateService
         $relativePath = "certificates/{$kegiatanPegawai->id}.pdf";
         $absolutePath = storage_path("app/public/{$relativePath}");
 
+        // Hapus file sertifikat lama jika ada (untuk replace saat regenerate)
+        if (! empty($kegiatanPegawai->link_sertifikat) && $kegiatanPegawai->link_sertifikat !== $relativePath) {
+            $oldPath = storage_path('app/public/' . $kegiatanPegawai->link_sertifikat);
+            if (file_exists($oldPath)) {
+                @unlink($oldPath);
+            }
+        }
+        if (file_exists($absolutePath)) {
+            @unlink($absolutePath);
+        }
+
         if ($templateSertifikat) {
             // PPTX template path: placeholders replaced in slide XML, {{tte}} → QR code
             $this->pptxService->generate(
@@ -233,6 +244,13 @@ class CertificateService
     private function determinePeran(Kegiatan $kegiatan, string $nip): string
     {
         if ($kegiatan->narasumber === $nip) return 'Narasumber';
+        if (is_array($kegiatan->narasumber_list)) {
+            foreach ($kegiatan->narasumber_list as $ns) {
+                if (isset($ns['narasumber']) && trim((string) $ns['narasumber']) === trim($nip)) {
+                    return 'Narasumber';
+                }
+            }
+        }
         if ($kegiatan->moderator  === $nip) return 'Moderator';
         return 'Peserta';
     }

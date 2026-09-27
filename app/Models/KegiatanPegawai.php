@@ -36,6 +36,57 @@ class KegiatanPegawai extends Model
         'signed_at' => 'datetime',
     ];
 
+    protected $appends = [
+        'jenis_survei',
+    ];
+
+    /**
+     * Determine whether isi_form represents Survei Kegiatan, Evaluasi Narasumber, or both.
+     */
+    public function getJenisSurveiAttribute(): string
+    {
+        $isiForm = $this->isi_form;
+        if (is_string($isiForm)) {
+            $decoded = json_decode($isiForm, true);
+            $isiForm = is_array($decoded) ? $decoded : [];
+        }
+        if (!is_array($isiForm) || empty($isiForm)) {
+            return 'survei_kegiatan';
+        }
+
+        $identityKeys = [
+            'nama_lengkap',
+            'nip_no_absen',
+            'jabatan',
+            'unit_kerja',
+            'status_pegawai',
+            'nomor_sertifikat',
+            'nip',
+        ];
+
+        $hasEvaluasiNarasumber = false;
+        $hasSurveiKegiatan = false;
+
+        foreach (array_keys($isiForm) as $key) {
+            $keyStr = (string) $key;
+            if (preg_match('/^ns_\d+_/', $keyStr)) {
+                $hasEvaluasiNarasumber = true;
+            } elseif (!in_array($keyStr, $identityKeys, true)) {
+                $hasSurveiKegiatan = true;
+            }
+        }
+
+        if ($hasEvaluasiNarasumber && $hasSurveiKegiatan) {
+            return 'gabungan';
+        }
+
+        if ($hasEvaluasiNarasumber) {
+            return 'evaluasi_narasumber';
+        }
+
+        return 'survei_kegiatan';
+    }
+
     protected static function booted()
     {
         static::creating(function ($model) {
