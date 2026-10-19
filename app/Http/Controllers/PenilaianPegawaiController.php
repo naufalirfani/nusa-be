@@ -16,7 +16,7 @@ class PenilaianPegawaiController extends Controller
     public function index(Request $request)
     {
         $query = PenilaianPegawai::query();
-        $withPagination = $request->boolean('with_pagination', true);
+        $withPagination = $request->boolean('with_pagination', true) && !$request->boolean('fetch_all', false) && !$request->boolean('all', false);
         $onlyLatestPeriode = $request->boolean('only_latest_periode', false);
 
         if ($onlyLatestPeriode) {

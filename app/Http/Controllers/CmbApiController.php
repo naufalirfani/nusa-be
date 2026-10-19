@@ -88,11 +88,14 @@ class CmbApiController extends Controller
             $unitOrganisasiId = $request->query('unit_organisasi_id', null);
             $withPegawai360 = $request->query('with_pegawai_360', 'false');
             $jabatan = $request->query('jabatan', null);
-            $perPage = $request->query('per_page', 15);
-            $page = $request->query('page', 1);
             $nip = $request->query('nip', null);
             $q = $request->query('q', null);
             $status = $request->query('status', 'ACTIVE');
+            $fetchAll = $request->boolean('fetch_all', false);
+
+            $isNoPagination = ($withPagination === 'false' || $withPagination === false || $fetchAll);
+            $perPage = $isNoPagination ? $request->query('per_page', 5000) : $request->query('per_page', 15);
+            $page = $request->query('page', 1);
 
             $url = "{$this->baseUrl}/api/pegawai?include_json={$includeJson}&with_pagination={$withPagination}&per_page={$perPage}&page={$page}";
             if ($unitOrganisasiId) {
@@ -120,7 +123,50 @@ class CmbApiController extends Controller
                 ->withOptions([
                     'verify' => false,
                 ])
+                ->timeout(60)
                 ->get($url);
+
+            if (!$response->successful()) {
+                return response($response->body(), $response->status())
+                    ->header('Content-Type', $response->header('Content-Type') ?? 'application/json');
+            }
+
+            $data = $response->json();
+
+            // If unpaginated is requested and external API returned paginated metadata with remaining pages, fetch all pages
+            if ($isNoPagination && is_array($data) && isset($data['data'])) {
+                $items = $data['data'];
+                $meta = $data['meta'] ?? [];
+                $lastPage = $meta['last_page'] ?? 1;
+                $total = $meta['total'] ?? count($items);
+
+                if ($lastPage > 1 && count($items) < $total) {
+                    for ($p = 2; $p <= $lastPage; $p++) {
+                        $nextUrl = preg_replace('/([?&])page=\d+/', '${1}page=' . $p, $url);
+                        $nextRes = Http::withHeaders($headers)
+                            ->withOptions(['verify' => false])
+                            ->timeout(30)
+                            ->get($nextUrl);
+
+                        if ($nextRes->successful()) {
+                            $nextJson = $nextRes->json();
+                            $nextItems = $nextJson['data'] ?? [];
+                            if (is_array($nextItems) && !empty($nextItems)) {
+                                $items = array_merge($items, $nextItems);
+                            }
+                        }
+                    }
+                    $data['data'] = $items;
+                    if (isset($data['meta']) && is_array($data['meta'])) {
+                        $data['meta']['current_page'] = 1;
+                        $data['meta']['last_page'] = 1;
+                        $data['meta']['per_page'] = count($items);
+                        $data['meta']['total'] = count($items);
+                    }
+                }
+
+                return response()->json($data);
+            }
 
             return response($response->body(), $response->status())
                 ->header('Content-Type', $response->header('Content-Type') ?? 'application/json');
