@@ -219,7 +219,7 @@ class CertificateService
     /**
      * Format: KP.04.00/{kegiatanSeq}/{pegawaiSeq}/DPDRI/{bulanRoman}/{tahun}
      */
-    private function generateNomorSertifikat(Kegiatan $kegiatan, KegiatanPegawai $kegiatanPegawai): string
+    public function generateNomorSertifikat(Kegiatan $kegiatan, KegiatanPegawai $kegiatanPegawai): string
     {
         $kegiatanSequence = $kegiatan->sequence_number        ?? 1;
         $pegawaiSequence  = $kegiatanPegawai->sequence_number ?? 1;

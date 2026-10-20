@@ -42,6 +42,7 @@ Route::middleware(['verify.api.token', 'whitelist.ip'])->group(function () {
     // Kegiatan Pegawai CRUD routes
     Route::get('kegiatan-pegawai', [KegiatanPegawaiController::class, 'index']);
     Route::post('kegiatan-pegawai', [KegiatanPegawaiController::class, 'store']);
+    Route::post('kegiatan-pegawai/upload-certificates', [KegiatanPegawaiController::class, 'uploadCertificates']);
     Route::get('kegiatan-pegawai/{id}', [KegiatanPegawaiController::class, 'show']);
     Route::put('kegiatan-pegawai/{id}', [KegiatanPegawaiController::class, 'update']);
     Route::delete('kegiatan-pegawai/{id}', [KegiatanPegawaiController::class, 'destroy']);

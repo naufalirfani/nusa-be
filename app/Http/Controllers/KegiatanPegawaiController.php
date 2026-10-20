@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Kegiatan;
 use App\Models\KegiatanPegawai;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use App\Services\CertificateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -348,4 +351,381 @@ class KegiatanPegawaiController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Upload certificate(s) for one or multiple employees for a specific kegiatan.
+     * Automatically creates a new kegiatan_pegawai record if not exists,
+     * or updates the existing record with the new certificate file.
+     */
+    public function uploadCertificates(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'kegiatan_id' => 'required|uuid|exists:kegiatan,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'status'  => 'error',
+                'message' => 'Validasi gagal',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+            $kegiatan = Kegiatan::findOrFail($request->kegiatan_id);
+
+            // Parse employee list
+            $rawPegawai = $request->input('pegawai');
+            if (is_string($rawPegawai)) {
+                $rawPegawai = json_decode($rawPegawai, true);
+            }
+            if (!is_array($rawPegawai) || empty($rawPegawai)) {
+                return response()->json([
+                    'success' => false,
+                    'status'  => 'error',
+                    'message' => 'Daftar pegawai yang dipilih tidak boleh kosong.',
+                ], 422);
+            }
+
+            // Parse fallback profiles
+            $rawProfiles = $request->input('pegawai_profiles');
+            if (is_string($rawProfiles)) {
+                $rawProfiles = json_decode($rawProfiles, true);
+            }
+            $frontendProfiles = is_array($rawProfiles) ? $rawProfiles : [];
+
+            // Master file
+            $masterFile = $request->file('file') ?: $request->file('sertifikat');
+            $masterContent = null;
+            $masterExt = 'pdf';
+            if ($masterFile && $masterFile->isValid()) {
+                $masterContent = file_get_contents($masterFile->getRealPath());
+                $masterExt = strtolower($masterFile->getClientOriginalExtension() ?: 'pdf');
+            }
+
+            // Individual files
+            $individualFiles = $request->file('files');
+
+            if (!$masterContent && empty($individualFiles)) {
+                return response()->json([
+                    'success' => false,
+                    'status'  => 'error',
+                    'message' => 'File sertifikat wajib diunggah.',
+                ], 422);
+            }
+
+            $createdCount = 0;
+            $updatedCount = 0;
+            $failedCount  = 0;
+            $errors       = [];
+            $results      = [];
+
+            foreach ($rawPegawai as $idx => $item) {
+                $nip = is_array($item) ? trim((string)($item['nip'] ?? '')) : trim((string)$item);
+
+                if ($nip === '' || $nip === '-' || strtolower($nip) === 'umum' || strtolower($nip) === 'null') {
+                    continue;
+                }
+
+                try {
+                    // Check file for this employee
+                    $fileContent = null;
+                    $ext = 'pdf';
+
+                    $empFile = null;
+                    if (is_array($individualFiles)) {
+                        if (isset($individualFiles[$nip])) {
+                            $empFile = $individualFiles[$nip];
+                        } elseif (isset($individualFiles[$idx])) {
+                            $empFile = $individualFiles[$idx];
+                        }
+                    }
+                    if (!$empFile && $request->hasFile("file_{$nip}")) {
+                        $empFile = $request->file("file_{$nip}");
+                    }
+
+                    if ($empFile && $empFile->isValid()) {
+                        $fileContent = file_get_contents($empFile->getRealPath());
+                        $ext = strtolower($empFile->getClientOriginalExtension() ?: 'pdf');
+                    } elseif ($masterContent !== null) {
+                        $fileContent = $masterContent;
+                        $ext = $masterExt;
+                    }
+
+                    if ($fileContent === null) {
+                        throw new \Exception("File sertifikat untuk NIP {$nip} tidak valid atau tidak ditemukan.");
+                    }
+
+                    // Resolve employee profile
+                    $fallbackProfile = is_array($item) ? $item : ($frontendProfiles[$nip] ?? null);
+                    $profile = $this->resolvePegawaiProfile($nip, $fallbackProfile);
+
+                    // Nomor sertifikat
+                    $nomorSertifikat = null;
+                    if (is_array($item) && !empty($item['nomor_sertifikat'])) {
+                        $nomorSertifikat = trim((string)$item['nomor_sertifikat']);
+                    } elseif ($request->filled('nomor_sertifikat')) {
+                        $nomorSertifikat = trim((string)$request->nomor_sertifikat);
+                    }
+
+                    // Check existing record
+                    $existingRecords = KegiatanPegawai::where('kegiatan_id', $kegiatan->id)
+                        ->where(function ($q) use ($nip) {
+                            $q->where('nip', $nip)
+                              ->orWhereRaw("(isi_form->>'nip_no_absen') = ?", [$nip]);
+                        })
+                        ->orderBy('created_at', 'asc')
+                        ->get();
+
+                    if ($existingRecords->isNotEmpty()) {
+                        $kegiatanPegawai = $existingRecords->first();
+
+                        // Clean duplicate rows if any
+                        if ($existingRecords->count() > 1) {
+                            foreach ($existingRecords->slice(1) as $dup) {
+                                if ($dup->link_sertifikat && $dup->link_sertifikat !== $kegiatanPegawai->link_sertifikat) {
+                                    if (Storage::disk('public')->exists($dup->link_sertifikat)) {
+                                        Storage::disk('public')->delete($dup->link_sertifikat);
+                                    }
+                                }
+                                $dup->delete();
+                            }
+                        }
+
+                        $isUpdate = true;
+                    } else {
+                        $kegiatanPegawai = new KegiatanPegawai();
+                        $kegiatanPegawai->id = (string) Str::uuid();
+                        $kegiatanPegawai->kegiatan_id = $kegiatan->id;
+                        $kegiatanPegawai->nip = $nip;
+                        $isUpdate = false;
+                    }
+
+                    // Relative path for storage
+                    $filename = "{$kegiatanPegawai->id}.{$ext}";
+                    $relativePath = "certificates/{$filename}";
+
+                    // If old file exists with different path, remove it
+                    if ($isUpdate && !empty($kegiatanPegawai->link_sertifikat) && $kegiatanPegawai->link_sertifikat !== $relativePath) {
+                        if (Storage::disk('public')->exists($kegiatanPegawai->link_sertifikat)) {
+                            Storage::disk('public')->delete($kegiatanPegawai->link_sertifikat);
+                        }
+                    }
+
+                    // Save file to storage
+                    Storage::disk('public')->put($relativePath, $fileContent);
+                    $kegiatanPegawai->link_sertifikat = $relativePath;
+                    $kegiatanPegawai->setRelation('kegiatan', $kegiatan);
+
+                    // Auto-assign sequence_number on new record if needed
+                    if (empty($kegiatanPegawai->sequence_number)) {
+                        $maxSeq = \Illuminate\Support\Facades\DB::table('kegiatan_pegawai')
+                            ->where('kegiatan_id', $kegiatan->id)
+                            ->max('sequence_number');
+                        $kegiatanPegawai->sequence_number = ($maxSeq !== null) ? $maxSeq + 1 : 1;
+                    }
+
+                    // Nomor sertifikat
+                    if (!empty($nomorSertifikat)) {
+                        $kegiatanPegawai->nomor_sertifikat = $nomorSertifikat;
+                    } elseif (empty($kegiatanPegawai->nomor_sertifikat)) {
+                        $kegiatanPegawai->nomor_sertifikat = $this->certificateService->generateNomorSertifikat($kegiatan, $kegiatanPegawai);
+                    }
+
+                    // Update isi_form
+                    if ($isUpdate) {
+                        $existingIsiForm = is_array($kegiatanPegawai->isi_form) ? $kegiatanPegawai->isi_form : [];
+                        $mergedIsiForm = array_merge($existingIsiForm, [
+                            'nama_lengkap'   => (!empty($existingIsiForm['nama_lengkap']) && $existingIsiForm['nama_lengkap'] !== '-')
+                                ? $existingIsiForm['nama_lengkap']
+                                : ($profile['nama_lengkap'] ?: $nip),
+                            'nip_no_absen'   => (!empty($existingIsiForm['nip_no_absen']) && $existingIsiForm['nip_no_absen'] !== '-')
+                                ? $existingIsiForm['nip_no_absen']
+                                : $nip,
+                            'jabatan'        => (!empty($existingIsiForm['jabatan']) && $existingIsiForm['jabatan'] !== '-')
+                                ? $existingIsiForm['jabatan']
+                                : ($profile['jabatan'] ?: '-'),
+                            'unit_kerja'     => (!empty($existingIsiForm['unit_kerja']) && $existingIsiForm['unit_kerja'] !== '-')
+                                ? $existingIsiForm['unit_kerja']
+                                : ($profile['unit_kerja'] ?: '-'),
+                            'status_pegawai' => (!empty($existingIsiForm['status_pegawai']) && $existingIsiForm['status_pegawai'] !== '-')
+                                ? $existingIsiForm['status_pegawai']
+                                : ($profile['status_pegawai'] ?: '-'),
+                        ]);
+                        if (!empty($kegiatanPegawai->nomor_sertifikat)) {
+                            $mergedIsiForm['nomor_sertifikat'] = $kegiatanPegawai->nomor_sertifikat;
+                        }
+                        $kegiatanPegawai->isi_form = $mergedIsiForm;
+                    } else {
+                        $newIsiForm = [
+                            'nama_lengkap'     => $profile['nama_lengkap'] ?: $nip,
+                            'nip_no_absen'     => $nip,
+                            'jabatan'          => $profile['jabatan'] ?: '-',
+                            'unit_kerja'       => $profile['unit_kerja'] ?: '-',
+                            'status_pegawai'   => $profile['status_pegawai'] ?: '-',
+                            'nomor_sertifikat' => $kegiatanPegawai->nomor_sertifikat ?: '',
+                        ];
+                        $kegiatanPegawai->isi_form = $newIsiForm;
+                    }
+
+                    $kegiatanPegawai->save();
+
+                    if ($isUpdate) {
+                        $updatedCount++;
+                    } else {
+                        $createdCount++;
+                    }
+
+                    $results[] = [
+                        'id'               => $kegiatanPegawai->id,
+                        'nip'              => $nip,
+                        'nama_lengkap'     => $kegiatanPegawai->isi_form['nama_lengkap'] ?? $nip,
+                        'link_sertifikat'  => $kegiatanPegawai->link_sertifikat,
+                        'nomor_sertifikat' => $kegiatanPegawai->nomor_sertifikat,
+                        'is_update'        => $isUpdate,
+                    ];
+                } catch (\Exception $e) {
+                    $failedCount++;
+                    $errors[] = [
+                        'nip'     => $nip,
+                        'message' => $e->getMessage(),
+                    ];
+                    Log::error("Gagal upload sertifikat untuk NIP {$nip}: " . $e->getMessage());
+                }
+            }
+
+            $totalProcessed = $createdCount + $updatedCount;
+
+            return response()->json([
+                'success'         => $totalProcessed > 0,
+                'status'          => $totalProcessed > 0 ? 'success' : 'error',
+                'message'         => $totalProcessed > 0
+                    ? "Berhasil mengunggah sertifikat untuk {$totalProcessed} pegawai ({$createdCount} data baru ditambahkan, {$updatedCount} sertifikat diperbarui)."
+                    : 'Gagal memproses upload sertifikat.',
+                'created_count'   => $createdCount,
+                'updated_count'   => $updatedCount,
+                'failed_count'    => $failedCount,
+                'total_processed' => $totalProcessed,
+                'errors'          => $errors,
+                'data'            => $results,
+            ], $totalProcessed > 0 ? 200 : 500);
+
+        } catch (\Exception $e) {
+            Log::error('Upload certificates failed: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'status'  => 'error',
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Resolve employee profile from CMB API by NIP, with fallback to frontend profile data.
+     */
+    private function resolvePegawaiProfile(string $nip, ?array $fallback = null): array
+    {
+        $result = [
+            'nama_lengkap'   => $fallback['nama_lengkap']   ?? '',
+            'jabatan'        => $fallback['jabatan']        ?? '',
+            'unit_kerja'     => $fallback['unit_kerja']     ?? '',
+            'status_pegawai' => $fallback['status_pegawai'] ?? '',
+        ];
+
+        try {
+            $cmbController = app(\App\Http\Controllers\CmbApiController::class);
+            $cmbRequest    = new Request(['with_unit_parent' => 'true']);
+            $response      = $cmbController->getPegawaiByNip($cmbRequest, $nip);
+
+            if ($response->getStatusCode() === 200) {
+                $decoded = json_decode($response->getContent(), true);
+                $p = $decoded['data']['data'] ?? $decoded['data'] ?? $decoded ?? null;
+
+                if (is_array($p) && ! empty($p)) {
+                    $json = isset($p['json']) && is_array($p['json']) ? $p['json'] : [];
+
+                    $rawName = $p['nama']
+                        ?? $p['name']
+                        ?? $p['nama_lengkap']
+                        ?? $p['full_name']
+                        ?? $p['namaLengkap']
+                        ?? $json['nama']
+                        ?? '';
+
+                    $gelarDepan    = trim((string) ($p['gelarDepan'] ?? $p['gelar_depan'] ?? $json['gelarDepan'] ?? ''));
+                    $gelarBelakang = trim((string) ($p['gelarBelakang'] ?? $p['gelar_belakang'] ?? $json['gelarBelakang'] ?? ''));
+
+                    if ($rawName !== '') {
+                        $formattedName = $this->formatPersonName((string) $rawName);
+                        if ($gelarDepan !== '' && ! str_starts_with(strtolower($formattedName), strtolower($gelarDepan))) {
+                            $formattedName = "{$gelarDepan} {$formattedName}";
+                        }
+                        if ($gelarBelakang !== '' && ! str_ends_with(strtolower($formattedName), strtolower($gelarBelakang))) {
+                            $formattedName = "{$formattedName}, {$gelarBelakang}";
+                        }
+                        $result['nama_lengkap'] = trim($formattedName);
+                    }
+
+                    $jabatan = $json['jabatanNama']
+                        ?? $p['jabatan_name']
+                        ?? $p['jabatan']
+                        ?? $p['nama_jabatan']
+                        ?? '';
+                    if ($jabatan !== '') {
+                        $result['jabatan'] = (string) $jabatan;
+                    }
+
+                    $unitKerja = $p['unit_organisasi_parent']
+                        ?? $json['unorNama']
+                        ?? $p['unit_organisasi_name']
+                        ?? $p['unit_kerja']
+                        ?? $p['unit']
+                        ?? '';
+                    if ($unitKerja !== '') {
+                        $result['unit_kerja'] = (string) $unitKerja;
+                    }
+
+                    $statusPegawai = $json['statusPegawai']
+                        ?? $p['statusPegawai']
+                        ?? $p['status_pegawai']
+                        ?? '';
+                    if ($statusPegawai !== '') {
+                        $result['status_pegawai'] = (string) $statusPegawai;
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            Log::warning("Gagal mengambil profil pegawai dari CMB API untuk NIP {$nip}: " . $e->getMessage());
+        }
+
+        return $result;
+    }
+
+    /**
+     * Format person name into Title Case while preserving suffixes/degrees after comma.
+     */
+    private function formatPersonName(string $name): string
+    {
+        if (trim($name) === '') {
+            return '';
+        }
+
+        $parts  = explode(',', $name);
+        $main   = trim($parts[0] ?? '');
+        $suffix = trim(implode(',', array_slice($parts, 1)));
+
+        $words = preg_split('/\s+/', $main, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $formattedWords = array_map(function ($w) {
+            $lower = mb_strtolower($w);
+            if (mb_strlen($lower) <= 2) {
+                return mb_strtoupper($lower);
+            }
+            return mb_strtoupper(mb_substr($lower, 0, 1)) . mb_substr($lower, 1);
+        }, $words);
+
+        $formattedMain = implode(' ', $formattedWords);
+        return $suffix !== '' ? "{$formattedMain}, {$suffix}" : $formattedMain;
+    }
+
 }
