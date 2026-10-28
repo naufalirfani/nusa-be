@@ -169,6 +169,28 @@ class KegiatanPegawaiController extends Controller
         }
 
         try {
+            // Validate special one-time evaluation token if provided
+            $tokenString = $request->input('token');
+            $tokenRecord = null;
+            if ($tokenString) {
+                $tokenRecord = \App\Models\KegiatanTokenEvaluasi::where('token', $tokenString)
+                    ->where('kegiatan_id', $request->kegiatan_id)
+                    ->where('jenis', 'kegiatan')
+                    ->first();
+                if (!$tokenRecord) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Link evaluasi khusus tidak valid.',
+                    ], 404);
+                }
+                if ($tokenRecord->is_used) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Link evaluasi khusus ini sudah pernah digunakan dan tidak dapat dipakai lagi.',
+                    ], 410);
+                }
+            }
+
             $nip = trim((string) $request->nip);
             $isValidNip = $nip !== '' && $nip !== '-' && strtolower($nip) !== 'umum' && strtolower($nip) !== 'null';
 
@@ -236,6 +258,15 @@ class KegiatanPegawaiController extends Controller
                     // Log error but don't fail the creation
                     Log::error('Certificate generation failed: ' . $e->getMessage());
                 }
+            }
+
+            // If submitted with one-time evaluation token, mark token as used
+            if ($tokenRecord) {
+                $tokenRecord->update([
+                    'is_used' => true,
+                    'used_at' => now(),
+                    'used_by' => $kegiatanPegawai->nip ?: ($isiFormData['nama_lengkap'] ?? null),
+                ]);
             }
 
             return response()->json([

@@ -10,6 +10,7 @@ use App\Http\Controllers\CertificateController;
 use App\Http\Controllers\PenilaianPegawaiController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\FeedbackTemplateController;
+use App\Http\Controllers\KegiatanTokenEvaluasiController;
 
 
 // Admin Authentication Routes (no middleware)
@@ -38,6 +39,12 @@ Route::middleware(['verify.api.token', 'whitelist.ip'])->group(function () {
     Route::delete('kegiatan/{id}', [KegiatanController::class, 'destroy']);
     Route::get('kegiatan/{id}/test-certificate', [KegiatanController::class, 'testCertificate']);
     Route::get('kegiatan/{id}/qrcode-presensi', [KegiatanController::class, 'qrCodePresensi']);
+
+    // Kegiatan Token Evaluasi (Link Khusus Sekali Pakai)
+    Route::get('kegiatan/{kegiatan_id}/tokens', [KegiatanTokenEvaluasiController::class, 'index']);
+    Route::post('kegiatan/{kegiatan_id}/tokens', [KegiatanTokenEvaluasiController::class, 'store']);
+    Route::delete('kegiatan-tokens/{id}', [KegiatanTokenEvaluasiController::class, 'destroy']);
+    Route::get('kegiatan-tokens/verify/{token}', [KegiatanTokenEvaluasiController::class, 'verify']);
 
     // Kegiatan Pegawai CRUD routes
     Route::get('kegiatan-pegawai', [KegiatanPegawaiController::class, 'index']);

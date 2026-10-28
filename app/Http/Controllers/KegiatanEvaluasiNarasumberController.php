@@ -92,6 +92,28 @@ class KegiatanEvaluasiNarasumberController extends Controller
             ], 422);
         }
 
+        // Validate special one-time evaluation token if provided
+        $tokenString = $request->input('token');
+        $tokenRecord = null;
+        if ($tokenString) {
+            $tokenRecord = \App\Models\KegiatanTokenEvaluasi::where('token', $tokenString)
+                ->where('kegiatan_id', $request->kegiatan_id)
+                ->where('jenis', 'narasumber')
+                ->first();
+            if (!$tokenRecord) {
+                return response()->json([
+                    'status'  => 'error',
+                    'message' => 'Link evaluasi khusus tidak valid.',
+                ], 404);
+            }
+            if ($tokenRecord->is_used) {
+                return response()->json([
+                    'status'  => 'error',
+                    'message' => 'Link evaluasi khusus ini sudah pernah digunakan dan tidak dapat dipakai lagi.',
+                ], 410);
+            }
+        }
+
         $isiForm = $request->isi_form;
         if (is_string($isiForm)) {
             $decoded = json_decode($isiForm, true);
@@ -121,6 +143,15 @@ class KegiatanEvaluasiNarasumberController extends Controller
             'kategori_responden' => $kategoriResponden,
             'isi_form'           => $isiForm,
         ]);
+
+        // If submitted with one-time evaluation token, mark token as used
+        if ($tokenRecord) {
+            $tokenRecord->update([
+                'is_used' => true,
+                'used_at' => now(),
+                'used_by' => $request->nip ?: ($isiForm['nama_lengkap'] ?? null),
+            ]);
+        }
 
         return response()->json([
             'status'  => 'success',
