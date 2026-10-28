@@ -17,12 +17,44 @@ class KegiatanEvaluasiNarasumber extends Model
     protected $fillable = [
         'kegiatan_id',
         'nip',
+        'kategori_responden',
         'isi_form',
     ];
 
     protected $casts = [
         'isi_form' => 'json',
     ];
+
+    protected $appends = [
+        'kategori_responden',
+    ];
+
+    /**
+     * Get the respondent category (internal vs umum).
+     * Falls back to checking whether NIP contains 18 digits if null.
+     */
+    public function getKategoriRespondenAttribute($value): string
+    {
+        if (!empty($value)) {
+            return strtolower(trim($value));
+        }
+
+        $isiForm = $this->isi_form;
+        if (is_string($isiForm)) {
+            $decoded = json_decode($isiForm, true);
+            $isiForm = is_array($decoded) ? $decoded : [];
+        }
+        if (is_array($isiForm) && !empty($isiForm['kategori_responden'])) {
+            return strtolower(trim($isiForm['kategori_responden']));
+        }
+
+        $nip = trim((string) ($this->nip ?? ($isiForm['nip_no_absen'] ?? '')));
+        if (preg_match('/^\d{18}$/', $nip)) {
+            return 'internal';
+        }
+
+        return 'umum';
+    }
 
     protected static function booted()
     {

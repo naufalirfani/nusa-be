@@ -34,6 +34,36 @@ class KegiatanEvaluasiNarasumberController extends Controller
             $query->where('nip', $request->nip);
         }
 
+        // Filter by kategori_responden (internal vs umum)
+        $kategoriParam = $request->get('kategori_responden') ?? $request->get('kategori');
+        if ($kategoriParam && in_array(strtolower(trim($kategoriParam)), ['internal', 'umum'], true)) {
+            $kat = strtolower(trim($kategoriParam));
+            if ($kat === 'internal') {
+                $query->where(function ($q) {
+                    $q->where('kategori_responden', 'internal')
+                      ->orWhereRaw("(isi_form->>'kategori_responden') ILIKE 'internal'")
+                      ->orWhere(function ($sub) {
+                          $sub->whereNull('kategori_responden')
+                              ->whereRaw("((isi_form->>'kategori_responden') IS NULL OR (isi_form->>'kategori_responden') = '')")
+                              ->whereRaw("nip ~ '^[0-9]{18}$'");
+                      });
+                });
+            } else {
+                $query->where(function ($q) {
+                    $q->where('kategori_responden', 'umum')
+                      ->orWhereRaw("(isi_form->>'kategori_responden') ILIKE 'umum'")
+                      ->orWhere(function ($sub) {
+                          $sub->whereNull('kategori_responden')
+                              ->whereRaw("((isi_form->>'kategori_responden') IS NULL OR (isi_form->>'kategori_responden') = '')")
+                              ->where(function ($nipSub) {
+                                  $nipSub->whereNull('nip')
+                                         ->orWhereRaw("nip !~ '^[0-9]{18}$'");
+                              });
+                      });
+                });
+            }
+        }
+
         $query->orderBy('created_at', 'desc');
 
         $data = $query->get();
@@ -69,11 +99,27 @@ class KegiatanEvaluasiNarasumberController extends Controller
                 $isiForm = $decoded;
             }
         }
+        if (!is_array($isiForm)) {
+            $isiForm = [];
+        }
+
+        $kategoriResponden = $request->input('kategori_responden');
+        if (empty($kategoriResponden) && isset($isiForm['kategori_responden'])) {
+            $kategoriResponden = $isiForm['kategori_responden'];
+        }
+        if (!empty($kategoriResponden)) {
+            $kategoriResponden = strtolower(trim($kategoriResponden));
+        } else {
+            $nipToCheck = trim((string)($request->nip ?? ($isiForm['nip_no_absen'] ?? '')));
+            $kategoriResponden = preg_match('/^\d{18}$/', $nipToCheck) ? 'internal' : 'umum';
+        }
+        $isiForm['kategori_responden'] = $kategoriResponden;
 
         $record = KegiatanEvaluasiNarasumber::create([
-            'kegiatan_id' => $request->kegiatan_id,
-            'nip'         => $request->nip ?: null,
-            'isi_form'    => $isiForm,
+            'kegiatan_id'        => $request->kegiatan_id,
+            'nip'                => $request->nip ?: null,
+            'kategori_responden' => $kategoriResponden,
+            'isi_form'           => $isiForm,
         ]);
 
         return response()->json([

@@ -66,6 +66,8 @@ class CertificateService
             '{{nama_kegiatan}}'    => $kegiatan->nama_kegiatan ?? '',
             '{{judul_kegiatan}}'   => $kegiatan->judul_tema    ?? '',
             '{{tanggal}}'          => $this->formatTanggal($kegiatan->tanggal),
+            '{{jumlah_jp}}'        => (string) ($kegiatan->jumlah_jp ?? 2),
+            '{{jp}}'               => (string) ($kegiatan->jumlah_jp ?? 2),
         ];
 
         // --- Generate QR code ---------------------------------------------------
@@ -140,6 +142,8 @@ class CertificateService
             '{{nama_kegiatan}}'    => $kegiatan->nama_kegiatan ?? 'Pelatihan Pengembangan SDM',
             '{{judul_kegiatan}}'   => $kegiatan->judul_tema    ?? 'Tema Pelatihan',
             '{{tanggal}}'          => $this->formatTanggal($kegiatan->tanggal ?? now()),
+            '{{jumlah_jp}}'        => (string) ($kegiatan->jumlah_jp ?? 2),
+            '{{jp}}'               => (string) ($kegiatan->jumlah_jp ?? 2),
         ];
 
         $tempId  = uniqid('test_cert_', true);

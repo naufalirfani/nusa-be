@@ -33,6 +33,7 @@ class Kegiatan extends Model
         'tanggal',
         'jam_mulai',
         'jam_selesai',
+        'jumlah_jp',
         'desain_sertifikat',
         'template_sertifikat',
         'form_evaluasi',
@@ -44,6 +45,10 @@ class Kegiatan extends Model
 
     protected $appends = ['narasumber_list'];
 
+    protected $attributes = [
+        'jumlah_jp' => 2,
+    ];
+
     protected $casts = [
         // cast tanggal to a formatted date string to avoid UTC offset in JSON
         'tanggal' => 'date:Y-m-d',
@@ -51,6 +56,7 @@ class Kegiatan extends Model
         'form_evaluasi' => 'json',
         'form_evaluasi_narasumber' => 'json',
         'butuh_sertifikat' => 'boolean',
+        'jumlah_jp' => 'integer',
     ];
 
     public function getNarasumberListAttribute(): array

@@ -59,6 +59,36 @@ class KegiatanPegawaiController extends Controller
             $query->where('nip', $request->nip);
         }
 
+        // Filter by kategori_responden (internal vs umum)
+        $kategoriParam = $request->get('kategori_responden') ?? $request->get('kategori');
+        if ($kategoriParam && in_array(strtolower(trim($kategoriParam)), ['internal', 'umum'], true)) {
+            $kat = strtolower(trim($kategoriParam));
+            if ($kat === 'internal') {
+                $query->where(function ($q) {
+                    $q->where('kategori_responden', 'internal')
+                      ->orWhereRaw("(isi_form->>'kategori_responden') ILIKE 'internal'")
+                      ->orWhere(function ($sub) {
+                          $sub->whereNull('kategori_responden')
+                              ->whereRaw("((isi_form->>'kategori_responden') IS NULL OR (isi_form->>'kategori_responden') = '')")
+                              ->whereRaw("nip ~ '^[0-9]{18}$'");
+                      });
+                });
+            } else {
+                $query->where(function ($q) {
+                    $q->where('kategori_responden', 'umum')
+                      ->orWhereRaw("(isi_form->>'kategori_responden') ILIKE 'umum'")
+                      ->orWhere(function ($sub) {
+                          $sub->whereNull('kategori_responden')
+                              ->whereRaw("((isi_form->>'kategori_responden') IS NULL OR (isi_form->>'kategori_responden') = '')")
+                              ->where(function ($nipSub) {
+                                  $nipSub->whereNull('nip')
+                                         ->orWhereRaw("nip !~ '^[0-9]{18}$'");
+                              });
+                      });
+                });
+            }
+        }
+
         // Search across isi_form fields when `q` provided (PostgreSQL only)
         if ($request->has('q') && strlen($request->get('q')) > 0) {
             $search = $request->get('q');
@@ -142,6 +172,29 @@ class KegiatanPegawaiController extends Controller
             $nip = trim((string) $request->nip);
             $isValidNip = $nip !== '' && $nip !== '-' && strtolower($nip) !== 'umum' && strtolower($nip) !== 'null';
 
+            $isiFormData = $request->isi_form;
+            if (is_string($isiFormData)) {
+                $decoded = json_decode($isiFormData, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    $isiFormData = $decoded;
+                }
+            }
+            if (!is_array($isiFormData)) {
+                $isiFormData = [];
+            }
+
+            $kategoriResponden = $request->input('kategori_responden');
+            if (empty($kategoriResponden) && isset($isiFormData['kategori_responden'])) {
+                $kategoriResponden = $isiFormData['kategori_responden'];
+            }
+            if (!empty($kategoriResponden)) {
+                $kategoriResponden = strtolower(trim($kategoriResponden));
+            } else {
+                $nipToCheck = trim((string)($nip !== '' ? $nip : ($isiFormData['nip_no_absen'] ?? '')));
+                $kategoriResponden = preg_match('/^\d{18}$/', $nipToCheck) ? 'internal' : 'umum';
+            }
+            $isiFormData['kategori_responden'] = $kategoriResponden;
+
             $existing = null;
             if ($isValidNip) {
                 $existing = KegiatanPegawai::where('kegiatan_id', $request->kegiatan_id)
@@ -156,7 +209,8 @@ class KegiatanPegawaiController extends Controller
             if ($existing) {
                 $existingIsiForm = is_array($existing->isi_form) ? $existing->isi_form : [];
                 $existing->nip = $nip;
-                $existing->isi_form = array_merge($existingIsiForm, $request->isi_form);
+                $existing->kategori_responden = $kategoriResponden;
+                $existing->isi_form = array_merge($existingIsiForm, $isiFormData);
                 $existing->save();
                 $kegiatanPegawai = $existing;
                 $isUpdated = true;
@@ -165,7 +219,8 @@ class KegiatanPegawaiController extends Controller
                 $kegiatanPegawai = KegiatanPegawai::create([
                     'kegiatan_id' => $request->kegiatan_id,
                     'nip' => $nip !== '' ? $nip : $request->nip,
-                    'isi_form' => $request->isi_form,
+                    'kategori_responden' => $kategoriResponden,
+                    'isi_form' => $isiFormData,
                 ]);
                 $isUpdated = false;
             }

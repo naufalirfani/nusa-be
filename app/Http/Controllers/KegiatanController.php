@@ -160,6 +160,7 @@ class KegiatanController extends Controller
             'form_evaluasi' => 'nullable|string',
             'form_evaluasi_narasumber' => 'nullable|string',
             'butuh_sertifikat' => 'sometimes|nullable|boolean',
+            'jumlah_jp' => 'nullable|integer|min:0',
             'aksesibilitas' => 'nullable|string|in:Internal,Eksternal,Internal dan Eksternal',
             'aksesibilitas_narasumber' => 'nullable|string|in:Internal,Eksternal,Internal dan Eksternal',
             'narasumber_list' => 'nullable',
@@ -173,6 +174,12 @@ class KegiatanController extends Controller
         }
 
         $data = $request->except(['banner', 'materi', 'virtual_background', 'template_sertifikat']);
+        // Handle jumlah_jp on store
+        if ($request->has('jumlah_jp')) {
+            $data['jumlah_jp'] = ($request->input('jumlah_jp') !== null && $request->input('jumlah_jp') !== '') ? (int) $request->input('jumlah_jp') : 2;
+        } else {
+            $data['jumlah_jp'] = 2;
+        }
 
         // Handle desain_sertifikat JSON dari form-data
         if ($request->has('desain_sertifikat')) {
@@ -483,6 +490,7 @@ class KegiatanController extends Controller
             'form_evaluasi' => 'sometimes|nullable|string',
             'form_evaluasi_narasumber' => 'sometimes|nullable|string',
             'butuh_sertifikat' => 'sometimes|nullable|boolean',
+            'jumlah_jp' => 'sometimes|nullable|integer|min:0',
             'aksesibilitas' => 'sometimes|nullable|string|in:Internal,Eksternal,Internal dan Eksternal',
             'aksesibilitas_narasumber' => 'sometimes|nullable|string|in:Internal,Eksternal,Internal dan Eksternal',
             'narasumber_list' => 'sometimes|nullable',
@@ -496,6 +504,12 @@ class KegiatanController extends Controller
         }
 
         $data = $request->except(['banner', 'materi', 'virtual_background', 'template_sertifikat']);
+        // Handle jumlah_jp on update
+        if ($request->has('jumlah_jp')) {
+            $data['jumlah_jp'] = ($request->input('jumlah_jp') !== null && $request->input('jumlah_jp') !== '') ? (int) $request->input('jumlah_jp') : 2;
+        } else {
+            unset($data['jumlah_jp']);
+        }
 
         // Handle desain_sertifikat JSON dari form-data
         if ($request->has('desain_sertifikat')) {
