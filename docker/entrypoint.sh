@@ -31,6 +31,7 @@ PHP_FPM_BACKLOG=${PHP_FPM_BACKLOG:-4096}
 cat > /usr/local/etc/php/conf.d/upload-limits.ini << EOF
 upload_max_filesize = 500M
 post_max_size = 500M
+max_file_uploads = 500
 memory_limit = ${PHP_MEMORY_LIMIT}
 max_execution_time = 600
 max_input_time = 600
