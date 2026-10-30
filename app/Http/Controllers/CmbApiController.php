@@ -4,11 +4,22 @@ namespace App\Http\Controllers;
 
 use App\Services\TokenEncryptionService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class CmbApiController extends Controller
 {
+    /**
+     * Cache key for list of all internal pegawai NIPs
+     */
+    public const CACHE_KEY_PEGAWAI_NIPS = 'cmb_all_pegawai_nips';
+
+    /**
+     * Memoized NIPs for current request lifecycle
+     */
+    private static ?array $memoizedPegawaiNips = null;
+
     private string $baseUrl;
     private string $apiToken;
 
@@ -17,6 +28,89 @@ class CmbApiController extends Controller
         $this->baseUrl = rtrim(config('services.cmb.api_url', ''), '/');
         $this->apiToken = config('services.cmb.api_token', '');
     }
+
+    /**
+     * Get list of all pegawai NIPs from CMB API with caching.
+     *
+     * @param bool $fresh If true, bypass cache and fetch fresh from API
+     * @return string[] Array of NIP strings
+     */
+    public static function getAllPegawaiNips(bool $fresh = false): array
+    {
+        if (!$fresh && self::$memoizedPegawaiNips !== null) {
+            return self::$memoizedPegawaiNips;
+        }
+
+        if ($fresh) {
+            Cache::forget(self::CACHE_KEY_PEGAWAI_NIPS);
+        }
+
+        $cached = Cache::get(self::CACHE_KEY_PEGAWAI_NIPS);
+        if (is_array($cached) && !empty($cached)) {
+            self::$memoizedPegawaiNips = $cached;
+            return self::$memoizedPegawaiNips;
+        }
+
+        try {
+            $controller = app(self::class);
+            $request = new Request([
+                'with_pagination' => 'false',
+                'include_json'    => 'false',
+                'status'          => '',
+            ]);
+
+            $response = $controller->getPegawai($request);
+            if ($response->getStatusCode() === 200) {
+                $content = json_decode($response->getContent(), true);
+                $items = $content['data'] ?? [];
+
+                $result = [];
+                foreach ($items as $item) {
+                    $nipVal = trim((string)($item['nip'] ?? ''));
+                    if ($nipVal !== '') {
+                        $result[] = $nipVal;
+                    }
+                }
+
+                $nips = array_values(array_unique($result));
+                if (!empty($nips)) {
+                    Cache::put(self::CACHE_KEY_PEGAWAI_NIPS, $nips, 3600);
+                    self::$memoizedPegawaiNips = $nips;
+                    return self::$memoizedPegawaiNips;
+                }
+            } else {
+                Log::warning('CMB getPegawai returned non-200 status ' . $response->getStatusCode());
+            }
+        } catch (\Throwable $e) {
+            Log::error('Error fetching pegawai NIPs in getAllPegawaiNips: ' . $e->getMessage());
+        }
+
+        self::$memoizedPegawaiNips = [];
+        return self::$memoizedPegawaiNips;
+    }
+
+    /**
+     * Determine whether a given NIP belongs to an internal employee based on CMB API pegawai data.
+     *
+     * @param string|null $nip
+     * @return bool
+     */
+    public static function isInternalNip(?string $nip): bool
+    {
+        $nip = trim((string) $nip);
+        if ($nip === '' || $nip === '-' || strtolower($nip) === 'umum' || strtolower($nip) === 'null') {
+            return false;
+        }
+
+        $internalNips = self::getAllPegawaiNips();
+        if (!empty($internalNips)) {
+            return in_array($nip, $internalNips, true);
+        }
+
+        // Graceful fallback to 18-digit check if CMB API is unreachable or returned empty
+        return (bool) preg_match('/^\d{18}$/', $nip);
+    }
+
 
     /**
      * Generate SSO token

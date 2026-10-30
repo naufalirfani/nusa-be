@@ -44,7 +44,7 @@ class KegiatanPegawai extends Model
 
     /**
      * Get the respondent category (internal vs umum).
-     * Falls back to checking whether NIP contains 18 digits if null.
+     * Falls back to checking whether NIP exists in CMB API pegawai data if null.
      */
     public function getKategoriRespondenAttribute($value): string
     {
@@ -62,11 +62,7 @@ class KegiatanPegawai extends Model
         }
 
         $nip = trim((string) ($this->nip ?? ($isiForm['nip_no_absen'] ?? '')));
-        if (preg_match('/^\d{18}$/', $nip)) {
-            return 'internal';
-        }
-
-        return 'umum';
+        return \App\Http\Controllers\CmbApiController::isInternalNip($nip) ? 'internal' : 'umum';
     }
 
     /**

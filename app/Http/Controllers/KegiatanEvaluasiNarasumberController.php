@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Kegiatan;
 use App\Models\KegiatanEvaluasiNarasumber;
 use App\Models\KegiatanPegawai;
+use Illuminate\Support\Facades\DB;
 use App\Services\CertificateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -38,27 +39,47 @@ class KegiatanEvaluasiNarasumberController extends Controller
         $kategoriParam = $request->get('kategori_responden') ?? $request->get('kategori');
         if ($kategoriParam && in_array(strtolower(trim($kategoriParam)), ['internal', 'umum'], true)) {
             $kat = strtolower(trim($kategoriParam));
+            $internalNips = CmbApiController::getAllPegawaiNips();
             if ($kat === 'internal') {
-                $query->where(function ($q) {
+                $query->where(function ($q) use ($internalNips) {
                     $q->where('kategori_responden', 'internal')
                       ->orWhereRaw("(isi_form->>'kategori_responden') ILIKE 'internal'")
-                      ->orWhere(function ($sub) {
+                      ->orWhere(function ($sub) use ($internalNips) {
                           $sub->whereNull('kategori_responden')
-                              ->whereRaw("((isi_form->>'kategori_responden') IS NULL OR (isi_form->>'kategori_responden') = '')")
-                              ->whereRaw("nip ~ '^[0-9]{18}$'");
+                              ->whereRaw("((isi_form->>'kategori_responden') IS NULL OR (isi_form->>'kategori_responden') = '')");
+                          if (!empty($internalNips)) {
+                              $sub->where(function ($nipSub) use ($internalNips) {
+                                  $nipSub->whereIn('nip', $internalNips)
+                                         ->orWhereIn(DB::raw("isi_form->>'nip_no_absen'"), $internalNips);
+                              });
+                          } else {
+                              $sub->whereRaw("nip ~ '^[0-9]{18}$'");
+                          }
                       });
                 });
             } else {
-                $query->where(function ($q) {
+                $query->where(function ($q) use ($internalNips) {
                     $q->where('kategori_responden', 'umum')
                       ->orWhereRaw("(isi_form->>'kategori_responden') ILIKE 'umum'")
-                      ->orWhere(function ($sub) {
+                      ->orWhere(function ($sub) use ($internalNips) {
                           $sub->whereNull('kategori_responden')
-                              ->whereRaw("((isi_form->>'kategori_responden') IS NULL OR (isi_form->>'kategori_responden') = '')")
-                              ->where(function ($nipSub) {
+                              ->whereRaw("((isi_form->>'kategori_responden') IS NULL OR (isi_form->>'kategori_responden') = '')");
+                          if (!empty($internalNips)) {
+                              $sub->where(function ($nipSub) use ($internalNips) {
+                                  $nipSub->where(function ($nSub) use ($internalNips) {
+                                      $nSub->whereNull('nip')
+                                           ->orWhereNotIn('nip', $internalNips);
+                                  })->where(function ($fSub) use ($internalNips) {
+                                      $fSub->whereNull(DB::raw("isi_form->>'nip_no_absen'"))
+                                           ->orWhereNotIn(DB::raw("isi_form->>'nip_no_absen'"), $internalNips);
+                                  });
+                              });
+                          } else {
+                              $sub->where(function ($nipSub) {
                                   $nipSub->whereNull('nip')
                                          ->orWhereRaw("nip !~ '^[0-9]{18}$'");
                               });
+                          }
                       });
                 });
             }
@@ -133,7 +154,7 @@ class KegiatanEvaluasiNarasumberController extends Controller
             $kategoriResponden = strtolower(trim($kategoriResponden));
         } else {
             $nipToCheck = trim((string)($request->nip ?? ($isiForm['nip_no_absen'] ?? '')));
-            $kategoriResponden = preg_match('/^\d{18}$/', $nipToCheck) ? 'internal' : 'umum';
+            $kategoriResponden = CmbApiController::isInternalNip($nipToCheck) ? 'internal' : 'umum';
         }
         $isiForm['kategori_responden'] = $kategoriResponden;
 
