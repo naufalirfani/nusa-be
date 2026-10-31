@@ -63,6 +63,7 @@ Route::middleware(['verify.api.token', 'whitelist.ip'])->group(function () {
 
     // Penilaian Pegawai CRUD routes
     Route::get('penilaian-pegawai', [PenilaianPegawaiController::class, 'index']);
+    Route::get('penilaian-pegawai/periodes', [PenilaianPegawaiController::class, 'getPeriodes']);
     // Store endpoint acts as sync for periode + nip_pegawai + list nip_penilai
     Route::post('penilaian-pegawai', [PenilaianPegawaiController::class, 'store']);
     Route::post('penilaian-pegawai/generate', [PenilaianPegawaiController::class, 'generate']);

@@ -19,7 +19,9 @@ class PenilaianPegawaiController extends Controller
         $withPagination = $request->boolean('with_pagination', true) && !$request->boolean('fetch_all', false) && !$request->boolean('all', false);
         $onlyLatestPeriode = $request->boolean('only_latest_periode', false);
 
-        if ($onlyLatestPeriode) {
+        if ($request->filled('periode')) {
+            $query->where('periode', $this->normalizePeriode($request->get('periode')));
+        } elseif ($onlyLatestPeriode) {
             $latestPeriode = PenilaianPegawai::select('periode')
                 ->orderBy('periode', 'desc')
                 ->first();
@@ -27,10 +29,6 @@ class PenilaianPegawaiController extends Controller
             if ($latestPeriode) {
                 $query->where('periode', $latestPeriode->periode);
             }
-        }
-
-        if ($request->filled('periode')) {
-            $query->where('periode', $this->normalizePeriode($request->get('periode')));
         }
 
         if ($request->filled('nip_pegawai')) {
@@ -166,6 +164,31 @@ class PenilaianPegawaiController extends Controller
             'message' => 'Data penilaian pegawai berhasil diambil',
             'data' => $data,
         ]);
+    }
+
+    /**
+     * Get list of distinct periodes from penilaian_pegawai.
+     */
+    public function getPeriodes()
+    {
+        try {
+            $periodes = PenilaianPegawai::select('periode')
+                ->whereNotNull('periode')
+                ->where('periode', '!=', '')
+                ->distinct()
+                ->orderBy('periode', 'desc')
+                ->pluck('periode');
+
+            return response()->json([
+                'success' => true,
+                'data' => $periodes,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengambil daftar periode: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
