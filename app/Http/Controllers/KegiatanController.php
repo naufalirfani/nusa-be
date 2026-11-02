@@ -96,9 +96,17 @@ class KegiatanController extends Controller
                             ABS(EXTRACT(EPOCH FROM (tanggal + jam_selesai - now()))) + 999999999
                     END"
                 );
+        } elseif ($sort === 'oldest') {
+            $query->orderBy('tanggal', 'asc')
+                ->orderBy('jam_mulai', 'asc')
+                ->orderBy('jam_selesai', 'asc')
+                ->orderBy('created_at', 'asc');
         } else {
-            // Default: urutkan berdasarkan created_at terbaru
-            $query->orderBy('created_at', 'desc');
+            // Default: urutkan berdasarkan tanggal dan jam terbaru
+            $query->orderBy('tanggal', 'desc')
+                ->orderBy('jam_mulai', 'desc')
+                ->orderBy('jam_selesai', 'desc')
+                ->orderBy('created_at', 'desc');
         }
 
         $kegiatan = $query->get();
