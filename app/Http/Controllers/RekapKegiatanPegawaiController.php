@@ -18,7 +18,7 @@ class RekapKegiatanPegawaiController extends Controller
     private function extractNip($record): ?string
     {
         $nip = trim((string) ($record->nip ?? ''));
-        if (!empty($nip) && $nip !== '-' && strtolower($nip) !== 'null') {
+        if (!empty($nip) && $nip !== '-' && strtolower($nip) !== 'null' && strtolower($nip) !== 'umum') {
             return $nip;
         }
 
@@ -29,7 +29,7 @@ class RekapKegiatanPegawaiController extends Controller
 
         if (is_array($isiForm)) {
             $fromForm = trim((string) ($isiForm['nip_no_absen'] ?? ($isiForm['nip'] ?? '')));
-            if (!empty($fromForm) && $fromForm !== '-' && strtolower($fromForm) !== 'null') {
+            if (!empty($fromForm) && $fromForm !== '-' && strtolower($fromForm) !== 'null' && strtolower($fromForm) !== 'umum') {
                 return $fromForm;
             }
         }
@@ -57,6 +57,7 @@ class RekapKegiatanPegawaiController extends Controller
     /**
      * Display a recap of activities attended by each employee.
      * Merges kegiatan_pegawai and kegiatan_evaluasi_narasumber, deduplicating by kegiatan_id.
+     * Only counts internal employees (filters kategori_responden = internal).
      *
      * GET /api/rekap-kegiatan-pegawai
      * Query params:
@@ -71,8 +72,29 @@ class RekapKegiatanPegawaiController extends Controller
             $kegiatanId = $request->get('kegiatan_id');
             $filterNip = $request->filled('nip') ? trim((string) $request->get('nip')) : null;
 
-            // 1. Build KegiatanPegawai query
+            // Ambil daftar seluruh NIP pegawai internal dari CMB API untuk verifikasi & filtering
+            $internalNips = CmbApiController::getAllPegawaiNips();
+
+            // 1. Build KegiatanPegawai query (hanya kategori responden = internal)
             $kpQuery = KegiatanPegawai::with(['kegiatan']);
+
+            // Filter kategori responden = internal
+            $kpQuery->where(function ($q) use ($internalNips) {
+                $q->where('kategori_responden', 'internal')
+                  ->orWhereRaw("(isi_form->>'kategori_responden') ILIKE 'internal'")
+                  ->orWhere(function ($sub) use ($internalNips) {
+                      $sub->whereNull('kategori_responden')
+                          ->whereRaw("((isi_form->>'kategori_responden') IS NULL OR (isi_form->>'kategori_responden') = '')");
+                      if (!empty($internalNips)) {
+                          $sub->where(function ($nipSub) use ($internalNips) {
+                              $nipSub->whereIn('nip', $internalNips)
+                                     ->orWhereIn(DB::raw("isi_form->>'nip_no_absen'"), $internalNips);
+                          });
+                      } else {
+                          $sub->whereRaw("nip ~ '^[0-9]{18}$'");
+                      }
+                  });
+            });
 
             if ($tahun) {
                 $kpQuery->whereHas('kegiatan', function ($q) use ($tahun) {
@@ -94,8 +116,26 @@ class RekapKegiatanPegawaiController extends Controller
 
             $kegiatanPegawai = $kpQuery->get();
 
-            // 2. Build KegiatanEvaluasiNarasumber query
+            // 2. Build KegiatanEvaluasiNarasumber query (hanya kategori responden = internal)
             $kenQuery = KegiatanEvaluasiNarasumber::with(['kegiatan']);
+
+            // Filter kategori responden = internal
+            $kenQuery->where(function ($q) use ($internalNips) {
+                $q->where('kategori_responden', 'internal')
+                  ->orWhereRaw("(isi_form->>'kategori_responden') ILIKE 'internal'")
+                  ->orWhere(function ($sub) use ($internalNips) {
+                      $sub->whereNull('kategori_responden')
+                          ->whereRaw("((isi_form->>'kategori_responden') IS NULL OR (isi_form->>'kategori_responden') = '')");
+                      if (!empty($internalNips)) {
+                          $sub->where(function ($nipSub) use ($internalNips) {
+                              $nipSub->whereIn('nip', $internalNips)
+                                     ->orWhereIn(DB::raw("isi_form->>'nip_no_absen'"), $internalNips);
+                          });
+                      } else {
+                          $sub->whereRaw("nip ~ '^[0-9]{18}$'");
+                      }
+                  });
+            });
 
             if ($tahun) {
                 $kenQuery->whereHas('kegiatan', function ($q) use ($tahun) {
@@ -124,6 +164,11 @@ class RekapKegiatanPegawaiController extends Controller
             foreach ($kegiatanPegawai as $kp) {
                 $nip = $this->extractNip($kp);
                 if (!$nip) {
+                    continue;
+                }
+
+                // Jika NIP tidak terdaftar di master pegawai, tidak usah dihitung
+                if (!empty($internalNips) && !in_array($nip, $internalNips, true)) {
                     continue;
                 }
 
@@ -182,6 +227,11 @@ class RekapKegiatanPegawaiController extends Controller
                     continue;
                 }
 
+                // Jika NIP tidak terdaftar di master pegawai, tidak usah dihitung
+                if (!empty($internalNips) && !in_array($nip, $internalNips, true)) {
+                    continue;
+                }
+
                 $k = $ken->kegiatan;
                 if (!$k) {
                     continue;
@@ -217,8 +267,7 @@ class RekapKegiatanPegawaiController extends Controller
                         'created_at' => $ken->created_at ? $ken->created_at->toISOString() : null,
                     ];
                 } else {
-                    // Employee was in both kegiatan_pegawai and evaluasi_narasumber
-                    // Double is counted as 1!
+                    // Pegawai ada di kegiatan_pegawai dan evaluasi_narasumber (double dihitung 1)
                     $entry = &$byNip[$nip]['kegiatan_map'][$kId];
                     if (!in_array('kegiatan_evaluasi_narasumber', $entry['sources'], true)) {
                         $entry['sources'][] = 'kegiatan_evaluasi_narasumber';
@@ -231,7 +280,6 @@ class RekapKegiatanPegawaiController extends Controller
             $finalByNip = [];
             $allUniqueKegiatanIds = [];
             $totalUniqueParticipation = 0;
-            $totalJpAll = 0;
 
             foreach ($byNip as $nip => $data) {
                 $kegiatans = array_values($data['kegiatan_map']);
@@ -325,4 +373,3 @@ class RekapKegiatanPegawaiController extends Controller
         return $response;
     }
 }
-
