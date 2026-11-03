@@ -11,6 +11,7 @@ use App\Http\Controllers\PenilaianPegawaiController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\FeedbackTemplateController;
 use App\Http\Controllers\KegiatanTokenEvaluasiController;
+use App\Http\Controllers\RekapKegiatanPegawaiController;
 
 
 // Admin Authentication Routes (no middleware)
@@ -50,6 +51,7 @@ Route::middleware(['verify.api.token', 'whitelist.ip'])->group(function () {
     Route::get('kegiatan-pegawai', [KegiatanPegawaiController::class, 'index']);
     Route::post('kegiatan-pegawai', [KegiatanPegawaiController::class, 'store']);
     Route::post('kegiatan-pegawai/upload-certificates', [KegiatanPegawaiController::class, 'uploadCertificates']);
+    Route::post('kegiatan-pegawai/generate-certificates', [KegiatanPegawaiController::class, 'generateCertificates']);
     Route::get('kegiatan-pegawai/{id}', [KegiatanPegawaiController::class, 'show']);
     Route::put('kegiatan-pegawai/{id}', [KegiatanPegawaiController::class, 'update']);
     Route::delete('kegiatan-pegawai/{id}', [KegiatanPegawaiController::class, 'destroy']);
@@ -60,6 +62,10 @@ Route::middleware(['verify.api.token', 'whitelist.ip'])->group(function () {
     Route::post('kegiatan-evaluasi-narasumber', [KegiatanEvaluasiNarasumberController::class, 'store']);
     Route::post('kegiatan-evaluasi-narasumber/generate-certificates', [KegiatanEvaluasiNarasumberController::class, 'generateCertificates']);
     Route::delete('kegiatan-evaluasi-narasumber/{id}', [KegiatanEvaluasiNarasumberController::class, 'destroy']);
+
+    // Rekap Kegiatan Pegawai CRUD routes
+    Route::get('rekap-kegiatan-pegawai', [RekapKegiatanPegawaiController::class, 'index']);
+    Route::get('rekap-kegiatan-pegawai/{nip}', [RekapKegiatanPegawaiController::class, 'show']);
 
     // Penilaian Pegawai CRUD routes
     Route::get('penilaian-pegawai', [PenilaianPegawaiController::class, 'index']);

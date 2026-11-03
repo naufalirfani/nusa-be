@@ -835,4 +835,141 @@ class KegiatanPegawaiController extends Controller
         return $suffix !== '' ? "{$formattedMain}, {$suffix}" : $formattedMain;
     }
 
+
+    /**
+     * Generate or regenerate certificates for all (or specific) respondents in a kegiatan.
+     */
+    public function generateCertificates(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'kegiatan_id' => 'required',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'status'  => 'error',
+                'message' => 'Validasi gagal: kegiatan_id diperlukan',
+                'errors'  => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+            $kegiatan = Kegiatan::findOrFail($request->kegiatan_id);
+
+            // Periksa apakah template atau desain sertifikat tersedia
+            if (!$kegiatan->template_sertifikat && !$kegiatan->desain_sertifikat) {
+                return response()->json([
+                    'success' => false,
+                    'status'  => 'error',
+                    'message' => 'Desain atau template sertifikat untuk kegiatan ini belum diatur.',
+                ], 422);
+            }
+
+            $query = KegiatanPegawai::where('kegiatan_id', $kegiatan->id);
+
+            if ($request->filled('id')) {
+                $query->where('id', $request->id);
+            } elseif ($request->filled('nip')) {
+                $targetNip = trim((string) $request->nip);
+                $query->where(function ($q) use ($targetNip) {
+                    $q->where('nip', $targetNip)
+                      ->orWhereRaw("(isi_form->>'nip_no_absen') = ?", [$targetNip]);
+                });
+            }
+
+            $records = $query->orderBy('created_at', 'asc')->get();
+
+            if ($records->isEmpty()) {
+                return response()->json([
+                    'success' => false,
+                    'status'  => 'error',
+                    'message' => 'Tidak ada data responden kegiatan pegawai yang ditemukan untuk diproses sertifikatnya.',
+                ], 422);
+            }
+
+            $frontendProfiles = is_array($request->pegawai_profiles) ? $request->pegawai_profiles : [];
+            $updatedCount = 0;
+            $failedCount  = 0;
+            $errors       = [];
+            $results      = [];
+
+            foreach ($records as $kp) {
+                $isi = is_array($kp->isi_form) ? $kp->isi_form : [];
+                $nip = trim((string) ($kp->nip ?: ($isi['nip'] ?? $isi['nip_no_absen'] ?? '')));
+
+                try {
+                    // Update profil dari frontend / CMB jika nama kosong atau "-"
+                    if ($nip !== '' && $nip !== '-' && strtolower($nip) !== 'umum') {
+                        $fallbackProfile = isset($frontendProfiles[$nip]) && is_array($frontendProfiles[$nip])
+                            ? $frontendProfiles[$nip]
+                            : null;
+
+                        if (empty($isi['nama_lengkap']) || $isi['nama_lengkap'] === '-') {
+                            $profile = $this->resolvePegawaiProfile($nip, $fallbackProfile);
+                            if (!empty($profile['nama_lengkap'])) {
+                                $isi['nama_lengkap'] = $profile['nama_lengkap'];
+                            }
+                            if (!empty($profile['jabatan']) && (empty($isi['jabatan']) || $isi['jabatan'] === '-')) {
+                                $isi['jabatan'] = $profile['jabatan'];
+                            }
+                            if (!empty($profile['unit_kerja']) && (empty($isi['unit_kerja']) || $isi['unit_kerja'] === '-')) {
+                                $isi['unit_kerja'] = $profile['unit_kerja'];
+                            }
+                            if (!empty($profile['status_pegawai']) && (empty($isi['status_pegawai']) || $isi['status_pegawai'] === '-')) {
+                                $isi['status_pegawai'] = $profile['status_pegawai'];
+                            }
+                            $kp->isi_form = $isi;
+                            $kp->save();
+                        }
+                    }
+
+                    $kp->setRelation('kegiatan', $kegiatan);
+                    $this->certificateService->generateCertificate($kp);
+
+                    $updatedCount++;
+                    $results[] = [
+                        'id'               => $kp->id,
+                        'nip'              => $kp->nip,
+                        'nama_lengkap'     => $kp->isi_form['nama_lengkap'] ?? $kp->nip,
+                        'nomor_sertifikat' => $kp->nomor_sertifikat,
+                        'link_sertifikat'  => $kp->link_sertifikat,
+                    ];
+                } catch (\Exception $e) {
+                    $failedCount++;
+                    $errors[] = [
+                        'id'      => $kp->id,
+                        'nip'     => $kp->nip,
+                        'message' => $e->getMessage(),
+                    ];
+                    Log::error("Gagal generate sertifikat untuk KegiatanPegawai {$kp->id}: " . $e->getMessage());
+                }
+            }
+
+            $totalProcessed = $updatedCount;
+
+            return response()->json([
+                'success'         => $totalProcessed > 0,
+                'status'          => $totalProcessed > 0 ? 'success' : 'error',
+                'message'         => $totalProcessed > 0
+                    ? "Berhasil men-generate/memperbarui sertifikat untuk {$totalProcessed} responden."
+                    : 'Gagal memproses sertifikat responden.',
+                'created_count'   => 0,
+                'updated_count'   => $updatedCount,
+                'failed_count'    => $failedCount,
+                'total_processed' => $totalProcessed,
+                'errors'          => $errors,
+                'data'            => $results,
+            ], $totalProcessed > 0 ? 200 : 500);
+
+        } catch (\Exception $e) {
+            Log::error('Generate certificates kegiatan-pegawai failed: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'status'  => 'error',
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
 }
