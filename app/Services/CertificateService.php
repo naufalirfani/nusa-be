@@ -57,6 +57,42 @@ class CertificateService
         // --- Resolve data -------------------------------------------------------
         $nomorSertifikat = $this->generateNomorSertifikat($kegiatan, $kegiatanPegawai);
         $nama            = $kegiatanPegawai->isi_form['nama_lengkap'] ?? '';
+
+        $nipCandidate = trim((string) ($kegiatanPegawai->nip ?: ($kegiatanPegawai->isi_form['nip'] ?? $kegiatanPegawai->isi_form['nip_no_absen'] ?? '')));
+        if ($this->isInvalidOrNipName($nama, $nipCandidate) && $nipCandidate !== '' && $nipCandidate !== '-' && strtolower($nipCandidate) !== 'umum') {
+            try {
+                $cmbController = app(\App\Http\Controllers\CmbApiController::class);
+                $cmbRequest    = new \Illuminate\Http\Request(['with_unit_parent' => 'true']);
+                $response      = $cmbController->getPegawaiByNip($cmbRequest, $nipCandidate);
+                if ($response->getStatusCode() === 200) {
+                    $decoded = json_decode($response->getContent(), true);
+                    $p = $decoded['data']['data'] ?? $decoded['data'] ?? $decoded ?? null;
+                    if (is_array($p) && !empty($p)) {
+                        $json = isset($p['json']) && is_array($p['json']) ? $p['json'] : [];
+                        $rawName = $p['nama'] ?? $p['name'] ?? $p['nama_lengkap'] ?? $p['full_name'] ?? $p['namaLengkap'] ?? $json['nama'] ?? '';
+                        $gelarDepan = trim((string) ($p['gelarDepan'] ?? $p['gelar_depan'] ?? $json['gelarDepan'] ?? ''));
+                        $gelarBelakang = trim((string) ($p['gelarBelakang'] ?? $p['gelar_belakang'] ?? $json['gelarBelakang'] ?? ''));
+                        if ($rawName !== '') {
+                            $formattedName = $this->formatPersonName((string) $rawName);
+                            if ($gelarDepan !== '' && !str_starts_with(strtolower($formattedName), strtolower($gelarDepan))) {
+                                $formattedName = "{$gelarDepan} {$formattedName}";
+                            }
+                            if ($gelarBelakang !== '' && !str_ends_with(strtolower($formattedName), strtolower($gelarBelakang))) {
+                                $formattedName = "{$formattedName}, {$gelarBelakang}";
+                            }
+                            $nama = trim($formattedName);
+                            $isi = is_array($kegiatanPegawai->isi_form) ? $kegiatanPegawai->isi_form : [];
+                            $isi['nama_lengkap'] = $nama;
+                            $kegiatanPegawai->isi_form = $isi;
+                            $kegiatanPegawai->save();
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
+                \Illuminate\Support\Facades\Log::warning("CertificateService failed resolving name for NIP {$nipCandidate}: " . $e->getMessage());
+            }
+        }
+
         $peran           = $this->determinePeran($kegiatan, $kegiatanPegawai->nip);
 
         $placeholders = [
@@ -264,5 +300,61 @@ class CertificateService
         $date = \Carbon\Carbon::parse($tanggal);
         $date->locale('id');
         return $date->translatedFormat('d F Y');
+    }
+
+    /**
+     * Check if a name is invalid, empty, or a NIP string (e.g. "NIP 200004202025061008" or "200004202025061008").
+     */
+    private function isInvalidOrNipName(?string $name, ?string $nip = null): bool
+    {
+        if ($name === null) {
+            return true;
+        }
+        $trimmed = trim($name);
+        if ($trimmed === '' || $trimmed === '-' || strtolower($trimmed) === 'null' || strtolower($trimmed) === 'undefined') {
+            return true;
+        }
+        if (preg_match('/^NIP[\s\:\.\-_]*[0-9]+/i', $trimmed)) {
+            return true;
+        }
+        if (preg_match('/^[0-9\s]+$/', $trimmed)) {
+            return true;
+        }
+        if (!empty($nip)) {
+            $cleanNip = trim((string) $nip);
+            if ($cleanNip !== '' && ($trimmed === $cleanNip || $trimmed === "NIP {$cleanNip}")) {
+                return true;
+            }
+        }
+        if (in_array(strtolower($trimmed), ['pengguna', 'user', 'anonim', 'peserta', 'peserta umum'], true)) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Format person name into Title Case while preserving suffixes/degrees after comma.
+     */
+    private function formatPersonName(string $name): string
+    {
+        if (trim($name) === '') {
+            return '';
+        }
+
+        $parts  = explode(',', $name);
+        $main   = trim($parts[0] ?? '');
+        $suffix = trim(implode(',', array_slice($parts, 1)));
+
+        $words = preg_split('/\s+/', $main, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $formattedWords = array_map(function ($w) {
+            $lower = mb_strtolower($w);
+            if (mb_strlen($lower) <= 2) {
+                return mb_strtoupper($lower);
+            }
+            return mb_strtoupper(mb_substr($lower, 0, 1)) . mb_substr($lower, 1);
+        }, $words);
+
+        $formattedMain = implode(' ', $formattedWords);
+        return $suffix !== '' ? "{$formattedMain}, {$suffix}" : $formattedMain;
     }
 }

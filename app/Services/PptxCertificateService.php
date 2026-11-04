@@ -358,12 +358,12 @@ class PptxCertificateService
     }
 
     /**
-     * Merge all <a:r> runs in a paragraph and substitute placeholders.
+     * Substitute placeholders in a paragraph while preserving each run's individual formatting (<a:rPr>).
      *
-     * Uses strpos-based scanning throughout (no dotall regex) so that nested
-     * self-closing elements inside <a:rPr> (e.g. <a:solidFill><a:srgbClr/>)
-     * never cause the run-properties extraction to stop prematurely and produce
-     * malformed XML — which was the root cause of "text disappears" reports.
+     * Handles split-run placeholders (where PowerPoint splits {{placeholder}} across multiple runs)
+     * without collapsing the entire paragraph into the first run's style. Each run retains its own
+     * styling (bold, italic, font, size, color), and the placeholder replacement adopts the styling
+     * of the run where the placeholder was formatted (including bold).
      */
     private function replaceInParagraph(string $paraXml, array $placeholders): string
     {
@@ -394,6 +394,25 @@ class PptxCertificateService
             $runEnd = $rClose + 6; // strlen('</a:r>') === 6
             $runXml = substr($paraXml, $rOpen, $runEnd - $rOpen);
 
+            // Extract <a:rPr> from this specific run
+            $rprXml   = '';
+            $rprStart = strpos($runXml, '<a:rPr');
+            if ($rprStart !== false) {
+                $rprGt = strpos($runXml, '>', $rprStart);
+                if ($rprGt !== false) {
+                    if ($runXml[$rprGt - 1] === '/') {
+                        // Self-closing: <a:rPr ... />
+                        $rprXml = substr($runXml, $rprStart, $rprGt - $rprStart + 1);
+                    } else {
+                        // Block element: <a:rPr ...>...</a:rPr>
+                        $rprCloseTag = strpos($runXml, '</a:rPr>', $rprGt);
+                        if ($rprCloseTag !== false) {
+                            $rprXml = substr($runXml, $rprStart, $rprCloseTag - $rprStart + 8);
+                        }
+                    }
+                }
+            }
+
             // Extract text content from <a:t> inside this run
             $text    = '';
             $tCursor = 0;
@@ -416,7 +435,13 @@ class PptxCertificateService
                 $tCursor = $tClose + 6;
             }
 
-            $runs[] = ['start' => $rOpen, 'end' => $runEnd, 'xml' => $runXml, 'text' => $text];
+            $runs[] = [
+                'start'  => $rOpen,
+                'end'    => $runEnd,
+                'xml'    => $runXml,
+                'rprXml' => $rprXml,
+                'text'   => $text,
+            ];
             $cursor = $runEnd;
         }
 
@@ -439,60 +464,95 @@ class PptxCertificateService
             return $paraXml;
         }
 
-        // --- Substitute placeholders ----------------------------------------
-        $replacedText = $combinedText;
+        // --- Substitute placeholders across individual runs -----------------
         foreach ($placeholders as $key => $value) {
-            $replacedText = str_replace(
-                $key,
-                htmlspecialchars((string) $value, ENT_XML1 | ENT_QUOTES, 'UTF-8'),
-                $replacedText
-            );
-        }
+            $strValue = (string) $value;
 
-        // --- Extract <a:rPr> from the first run with strpos -----------------
-        // Using a regex like /<a:rPr\b.*?(?:\/>|<\/a:rPr>)/s stops at the
-        // FIRST '/>' it encounters, which may be inside a nested child element
-        // such as <a:solidFill><a:srgbClr val="FF0000"/>.  That truncates the
-        // rPr, producing malformed XML that LibreOffice renders as blank text.
-        // strpos correctly finds the MATCHING closing tag instead.
-        $rprXml   = '';
-        $firstXml = $runs[0]['xml'];
-        $rprStart = strpos($firstXml, '<a:rPr');
-        if ($rprStart !== false) {
-            $rprGt = strpos($firstXml, '>', $rprStart);
-            if ($rprGt !== false) {
-                if ($firstXml[$rprGt - 1] === '/') {
-                    // Self-closing: <a:rPr ... />
-                    $rprXml = substr($firstXml, $rprStart, $rprGt - $rprStart + 1);
-                } else {
-                    // Block element: <a:rPr ...>...</a:rPr>
-                    $rprClose = strpos($firstXml, '</a:rPr>', $rprGt);
-                    if ($rprClose !== false) {
-                        $rprXml = substr($firstXml, $rprStart, $rprClose - $rprStart + 8);
+            while (true) {
+                $combinedText = implode('', array_column($runs, 'text'));
+                $pos = strpos($combinedText, $key);
+                if ($pos === false) {
+                    break;
+                }
+
+                $keyLen   = strlen($key);
+                $matchEnd = $pos + $keyLen;
+
+                // Map runs to their start/end offsets in $combinedText
+                $overlappingIndices = [];
+                $currentPos = 0;
+                $runSpans   = [];
+
+                foreach ($runs as $idx => $run) {
+                    $rLen   = strlen($run['text']);
+                    $rStart = $currentPos;
+                    $rEnd   = $rStart + $rLen;
+                    $currentPos = $rEnd;
+                    $runSpans[$idx] = ['start' => $rStart, 'end' => $rEnd];
+
+                    if (max($rStart, $pos) < min($rEnd, $matchEnd)) {
+                        $overlappingIndices[] = $idx;
+                    }
+                }
+
+                if (empty($overlappingIndices)) {
+                    break;
+                }
+
+                // Choose best <a:rPr> among overlapping runs:
+                // If any overlapping run has bold (b="1", b="true", or "Bold"), prioritize it.
+                // Otherwise keep the first overlapping run's styling.
+                $bestRpr = $runs[$overlappingIndices[0]]['rprXml'];
+                foreach ($overlappingIndices as $oIdx) {
+                    $candidateRpr = $runs[$oIdx]['rprXml'];
+                    if (str_contains($candidateRpr, 'b="1"') ||
+                        str_contains($candidateRpr, 'b="true"') ||
+                        stripos($candidateRpr, 'Bold') !== false) {
+                        $bestRpr = $candidateRpr;
+                        break;
+                    }
+                }
+
+                $targetIdx = $overlappingIndices[0];
+                $runs[$targetIdx]['rprXml'] = $bestRpr;
+
+                foreach ($overlappingIndices as $oIdx) {
+                    $rStart   = $runSpans[$oIdx]['start'];
+                    $rEnd     = $runSpans[$oIdx]['end'];
+                    $origText = $runs[$oIdx]['text'];
+
+                    $prefix = ($pos > $rStart) ? substr($origText, 0, $pos - $rStart) : '';
+                    $suffix = ($matchEnd < $rEnd) ? substr($origText, $matchEnd - $rStart) : '';
+
+                    if ($oIdx === $targetIdx) {
+                        $runs[$oIdx]['text'] = $prefix . $strValue . $suffix;
+                    } else {
+                        $runs[$oIdx]['text'] = $prefix . $suffix;
                     }
                 }
             }
         }
 
-        // --- Build merged run -----------------------------------------------
-        $mergedRun = '<a:r>' . $rprXml . '<a:t>' . $replacedText . '</a:t></a:r>';
-
-        // Remove all original runs from the paragraph using recorded positions
+        // --- Reconstruct paragraph XML while preserving non-run elements and run styles ---
         $newPara = '';
         $pCursor = 0;
         foreach ($runs as $run) {
+            // Append everything between pCursor and this run's start (e.g. <a:pPr>, <a:br/>, etc.)
             $newPara .= substr($paraXml, $pCursor, $run['start'] - $pCursor);
-            $pCursor  = $run['end'];
+
+            if ($run['text'] !== '') {
+                $safeText = htmlspecialchars($run['text'], ENT_XML1 | ENT_QUOTES, 'UTF-8');
+                $xmlSpace = (str_starts_with($run['text'], ' ') || str_ends_with($run['text'], ' '))
+                    ? ' xml:space="preserve"'
+                    : '';
+                $newPara .= '<a:r>' . $run['rprXml'] . '<a:t' . $xmlSpace . '>' . $safeText . '</a:t></a:r>';
+            }
+
+            $pCursor = $run['end'];
         }
         $newPara .= substr($paraXml, $pCursor);
 
-        // Insert merged run immediately before </a:p> (use strrpos for safety)
-        $closePos = strrpos($newPara, '</a:p>');
-        if ($closePos === false) {
-            return $paraXml; // malformed paragraph — return original unchanged
-        }
-
-        return substr($newPara, 0, $closePos) . $mergedRun . '</a:p>';
+        return $newPara;
     }
 
     /**

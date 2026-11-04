@@ -150,13 +150,34 @@ class KegiatanEvaluasiNarasumberController extends Controller
         if (empty($kategoriResponden) && isset($isiForm['kategori_responden'])) {
             $kategoriResponden = $isiForm['kategori_responden'];
         }
+
+        $nipToCheck = trim((string)($request->nip ?? ($isiForm['nip_no_absen'] ?? ($isiForm['nip'] ?? ''))));
         if (!empty($kategoriResponden)) {
             $kategoriResponden = strtolower(trim($kategoriResponden));
         } else {
-            $nipToCheck = trim((string)($request->nip ?? ($isiForm['nip_no_absen'] ?? '')));
             $kategoriResponden = CmbApiController::isInternalNip($nipToCheck) ? 'internal' : 'umum';
         }
         $isiForm['kategori_responden'] = $kategoriResponden;
+
+        // Auto-resolve nama pegawai jika responden internal tapi nama_lengkap masih kosong, diawali "NIP ", atau sama dengan NIP
+        if (!empty($nipToCheck) && CmbApiController::isInternalNip($nipToCheck)) {
+            $namaCurrent = trim((string)($isiForm['nama_lengkap'] ?? ''));
+            if ($namaCurrent === '' || $namaCurrent === '-' || str_starts_with(strtoupper($namaCurrent), 'NIP ') || $namaCurrent === $nipToCheck) {
+                $resolvedProfile = $this->resolvePegawaiProfile($nipToCheck);
+                if (!empty($resolvedProfile['nama_lengkap'])) {
+                    $isiForm['nama_lengkap'] = $resolvedProfile['nama_lengkap'];
+                }
+                if ((empty($isiForm['jabatan']) || $isiForm['jabatan'] === '-') && !empty($resolvedProfile['jabatan'])) {
+                    $isiForm['jabatan'] = $resolvedProfile['jabatan'];
+                }
+                if ((empty($isiForm['unit_kerja']) || $isiForm['unit_kerja'] === '-') && !empty($resolvedProfile['unit_kerja'])) {
+                    $isiForm['unit_kerja'] = $resolvedProfile['unit_kerja'];
+                }
+                if ((empty($isiForm['status_pegawai']) || $isiForm['status_pegawai'] === '-') && !empty($resolvedProfile['status_pegawai'])) {
+                    $isiForm['status_pegawai'] = $resolvedProfile['status_pegawai'];
+                }
+            }
+        }
 
         $record = KegiatanEvaluasiNarasumber::create([
             'kegiatan_id'        => $request->kegiatan_id,
@@ -286,6 +307,26 @@ class KegiatanEvaluasiNarasumberController extends Controller
                     : null;
 
                 $profile = $this->resolvePegawaiProfile($nip, $fallbackProfile);
+                $resolvedName = !empty($profile['nama_lengkap']) ? $profile['nama_lengkap'] : null;
+
+                // 1. Perbarui data di tabel kegiatan_evaluasi_narasumber jika nama_lengkap masih salah / berupa NIP
+                if ($resolvedName) {
+                    KegiatanEvaluasiNarasumber::where('kegiatan_id', $kegiatan->id)
+                        ->where(function ($q) use ($nip) {
+                            $q->where('nip', $nip)
+                              ->orWhereRaw("(isi_form->>'nip_no_absen') = ?", [$nip]);
+                        })
+                        ->get()
+                        ->each(function ($eval) use ($resolvedName, $nip) {
+                            $evalIsi = is_array($eval->isi_form) ? $eval->isi_form : [];
+                            $cName = $evalIsi['nama_lengkap'] ?? '';
+                            if ($this->isInvalidOrNipName($cName, $nip)) {
+                                $evalIsi['nama_lengkap'] = $resolvedName;
+                                $eval->isi_form = $evalIsi;
+                                $eval->save();
+                            }
+                        });
+                }
 
                 $existingRecords = KegiatanPegawai::where('kegiatan_id', $kegiatan->id)
                     ->where(function ($q) use ($nip) {
@@ -314,9 +355,16 @@ class KegiatanEvaluasiNarasumberController extends Controller
                     $existingIsiForm = is_array($kegiatanPegawai->isi_form) ? $kegiatanPegawai->isi_form : [];
                     $mergedIsiForm   = array_merge($evalIsiForm, $existingIsiForm);
 
-                    $mergedIsiForm['nama_lengkap'] = (! empty($existingIsiForm['nama_lengkap']) && $existingIsiForm['nama_lengkap'] !== '-')
-                        ? $existingIsiForm['nama_lengkap']
-                        : ($profile['nama_lengkap'] ?: ($evalIsiForm['nama_lengkap'] ?? $nip));
+                    $existingName = $existingIsiForm['nama_lengkap'] ?? '';
+                    if ($this->isInvalidOrNipName($existingName, $nip)) {
+                        $mergedIsiForm['nama_lengkap'] = $resolvedName ?: ($evalIsiForm['nama_lengkap'] ?? $nip);
+                    } else {
+                        $mergedIsiForm['nama_lengkap'] = $existingName;
+                    }
+                    if ($this->isInvalidOrNipName($mergedIsiForm['nama_lengkap'] ?? '', $nip)) {
+                        $mergedIsiForm['nama_lengkap'] = $resolvedName ?: $nip;
+                    }
+
                     $mergedIsiForm['nip_no_absen'] = (! empty($existingIsiForm['nip_no_absen']) && $existingIsiForm['nip_no_absen'] !== '-')
                         ? $existingIsiForm['nip_no_absen']
                         : $nip;
@@ -336,9 +384,16 @@ class KegiatanEvaluasiNarasumberController extends Controller
                     $isUpdate = true;
                 } else {
                     $newIsiForm = $evalIsiForm;
-                    $newIsiForm['nama_lengkap']   = (! empty($evalIsiForm['nama_lengkap']) && $evalIsiForm['nama_lengkap'] !== '-')
-                        ? $evalIsiForm['nama_lengkap']
-                        : ($profile['nama_lengkap'] ?: $nip);
+                    $evalName = $evalIsiForm['nama_lengkap'] ?? '';
+                    if ($this->isInvalidOrNipName($evalName, $nip)) {
+                        $newIsiForm['nama_lengkap'] = $resolvedName ?: $nip;
+                    } else {
+                        $newIsiForm['nama_lengkap'] = $evalName;
+                    }
+                    if ($this->isInvalidOrNipName($newIsiForm['nama_lengkap'] ?? '', $nip)) {
+                        $newIsiForm['nama_lengkap'] = $resolvedName ?: $nip;
+                    }
+
                     $newIsiForm['nip_no_absen']   = $nip;
                     $newIsiForm['jabatan']        = (! empty($evalIsiForm['jabatan']) && $evalIsiForm['jabatan'] !== '-')
                         ? $evalIsiForm['jabatan']
@@ -502,6 +557,36 @@ class KegiatanEvaluasiNarasumberController extends Controller
 
         $formattedMain = implode(' ', $formattedWords);
         return $suffix !== '' ? "{$formattedMain}, {$suffix}" : $formattedMain;
+    }
+
+    /**
+     * Check if a name is invalid, empty, or a NIP string (e.g. "NIP 200004202025061008" or "200004202025061008").
+     */
+    private function isInvalidOrNipName(?string $name, ?string $nip = null): bool
+    {
+        if ($name === null) {
+            return true;
+        }
+        $trimmed = trim($name);
+        if ($trimmed === '' || $trimmed === '-' || strtolower($trimmed) === 'null' || strtolower($trimmed) === 'undefined') {
+            return true;
+        }
+        if (preg_match('/^NIP[\s\:\.\-_]*[0-9]+/i', $trimmed)) {
+            return true;
+        }
+        if (preg_match('/^[0-9\s]+$/', $trimmed)) {
+            return true;
+        }
+        if (!empty($nip)) {
+            $cleanNip = trim((string) $nip);
+            if ($cleanNip !== '' && ($trimmed === $cleanNip || $trimmed === "NIP {$cleanNip}")) {
+                return true;
+            }
+        }
+        if (in_array(strtolower($trimmed), ['pengguna', 'user', 'anonim', 'peserta', 'peserta umum'], true)) {
+            return true;
+        }
+        return false;
     }
 
     /**

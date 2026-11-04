@@ -191,6 +191,8 @@ class RekapKegiatanPegawaiController extends Controller
 
                 if (!isset($byNip[$nip]['kegiatan_map'][$kId])) {
                     $byNip[$nip]['kegiatan_map'][$kId] = [
+                        'id' => $kp->id,
+                        'kegiatan_pegawai_id' => $kp->id,
                         'kegiatan_id' => $kId,
                         'nama_kegiatan' => $k->nama_kegiatan,
                         'judul_tema' => $k->judul_tema,
@@ -207,6 +209,10 @@ class RekapKegiatanPegawaiController extends Controller
                         'created_at' => $kp->created_at ? $kp->created_at->toISOString() : null,
                     ];
                 } else {
+                    if (empty($byNip[$nip]['kegiatan_map'][$kId]['id']) && !empty($kp->id)) {
+                        $byNip[$nip]['kegiatan_map'][$kId]['id'] = $kp->id;
+                        $byNip[$nip]['kegiatan_map'][$kId]['kegiatan_pegawai_id'] = $kp->id;
+                    }
                     // Update certificate if not present
                     if (empty($byNip[$nip]['kegiatan_map'][$kId]['nomor_sertifikat']) && !empty($kp->nomor_sertifikat)) {
                         $byNip[$nip]['kegiatan_map'][$kId]['nomor_sertifikat'] = $kp->nomor_sertifikat;
@@ -250,7 +256,17 @@ class RekapKegiatanPegawaiController extends Controller
                 }
 
                 if (!isset($byNip[$nip]['kegiatan_map'][$kId])) {
+                    // Cek apakah ada record KegiatanPegawai terkait untuk mendapatkan ID & sertifikat jika sudah terbit
+                    $matchedKp = KegiatanPegawai::where('kegiatan_id', $kId)
+                        ->where(function ($q) use ($nip) {
+                            $q->where('nip', $nip)
+                              ->orWhereRaw("(isi_form->>'nip_no_absen') = ?", [$nip])
+                              ->orWhereRaw("(isi_form->>'nip') = ?", [$nip]);
+                        })->first();
+
                     $byNip[$nip]['kegiatan_map'][$kId] = [
+                        'id' => $matchedKp ? $matchedKp->id : null,
+                        'kegiatan_pegawai_id' => $matchedKp ? $matchedKp->id : null,
                         'kegiatan_id' => $kId,
                         'nama_kegiatan' => $k->nama_kegiatan,
                         'judul_tema' => $k->judul_tema,
@@ -261,9 +277,9 @@ class RekapKegiatanPegawaiController extends Controller
                         'jumlah_jp' => (int) ($k->jumlah_jp ?? 2),
                         'sumber' => 'Evaluasi Narasumber',
                         'sources' => ['kegiatan_evaluasi_narasumber'],
-                        'nomor_sertifikat' => null,
-                        'link_sertifikat' => null,
-                        'ada_sertifikat' => false,
+                        'nomor_sertifikat' => $matchedKp ? $matchedKp->nomor_sertifikat : null,
+                        'link_sertifikat' => $matchedKp ? $matchedKp->link_sertifikat : null,
+                        'ada_sertifikat' => $matchedKp ? (!empty($matchedKp->link_sertifikat) || !empty($matchedKp->nomor_sertifikat)) : false,
                         'created_at' => $ken->created_at ? $ken->created_at->toISOString() : null,
                     ];
                 } else {

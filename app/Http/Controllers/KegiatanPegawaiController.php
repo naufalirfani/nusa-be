@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Kegiatan;
 use App\Models\KegiatanPegawai;
+use App\Models\KegiatanEvaluasiNarasumber;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -433,10 +434,53 @@ class KegiatanPegawaiController extends Controller
     /**
      * Regenerate certificate for a specific kegiatan pegawai.
      */
-    public function regenerateCertificate($id)
+    public function regenerateCertificate(Request $request, $id)
     {
         try {
             $kegiatanPegawai = KegiatanPegawai::with('kegiatan')->findOrFail($id);
+            $isi = is_array($kegiatanPegawai->isi_form) ? $kegiatanPegawai->isi_form : [];
+            $nip = trim((string) ($kegiatanPegawai->nip ?: ($isi['nip'] ?? $isi['nip_no_absen'] ?? '')));
+
+            $curName = $isi['nama_lengkap'] ?? '';
+            if ($nip !== '' && $nip !== '-' && strtolower($nip) !== 'umum' && $this->isInvalidOrNipName($curName, $nip)) {
+                $fallbackProfiles = is_array($request->pegawai_profiles) ? $request->pegawai_profiles : [];
+                $fallback = $fallbackProfiles[$nip] ?? null;
+                $profile = $this->resolvePegawaiProfile($nip, $fallback);
+
+                if (!empty($profile['nama_lengkap'])) {
+                    $isi['nama_lengkap'] = $profile['nama_lengkap'];
+                }
+                if (!empty($profile['jabatan']) && (empty($isi['jabatan']) || $isi['jabatan'] === '-')) {
+                    $isi['jabatan'] = $profile['jabatan'];
+                }
+                if (!empty($profile['unit_kerja']) && (empty($isi['unit_kerja']) || $isi['unit_kerja'] === '-')) {
+                    $isi['unit_kerja'] = $profile['unit_kerja'];
+                }
+                if (!empty($profile['status_pegawai']) && (empty($isi['status_pegawai']) || $isi['status_pegawai'] === '-')) {
+                    $isi['status_pegawai'] = $profile['status_pegawai'];
+                }
+                $kegiatanPegawai->isi_form = $isi;
+                $kegiatanPegawai->save();
+
+                // Sinkronkan juga ke data kegiatan_evaluasi_narasumber jika ada
+                if ($kegiatanPegawai->kegiatan_id) {
+                    KegiatanEvaluasiNarasumber::where('kegiatan_id', $kegiatanPegawai->kegiatan_id)
+                        ->where(function ($q) use ($nip) {
+                            $q->where('nip', $nip)
+                              ->orWhereRaw("(isi_form->>'nip_no_absen') = ?", [$nip]);
+                        })
+                        ->get()
+                        ->each(function ($eval) use ($isi, $nip) {
+                            $evalIsi = is_array($eval->isi_form) ? $eval->isi_form : [];
+                            if ($this->isInvalidOrNipName($evalIsi['nama_lengkap'] ?? '', $nip)) {
+                                $evalIsi['nama_lengkap'] = $isi['nama_lengkap'];
+                                $eval->isi_form = $evalIsi;
+                                $eval->save();
+                            }
+                        });
+                }
+            }
+
             $this->certificateService->generateCertificate($kegiatanPegawai);
 
             return response()->json([
@@ -835,6 +879,35 @@ class KegiatanPegawaiController extends Controller
         return $suffix !== '' ? "{$formattedMain}, {$suffix}" : $formattedMain;
     }
 
+    /**
+     * Check if a name is invalid, empty, or a NIP string (e.g. "NIP 200004202025061008" or "200004202025061008").
+     */
+    private function isInvalidOrNipName(?string $name, ?string $nip = null): bool
+    {
+        if ($name === null) {
+            return true;
+        }
+        $trimmed = trim($name);
+        if ($trimmed === '' || $trimmed === '-' || strtolower($trimmed) === 'null' || strtolower($trimmed) === 'undefined') {
+            return true;
+        }
+        if (preg_match('/^NIP[\s\:\.\-_]*[0-9]+/i', $trimmed)) {
+            return true;
+        }
+        if (preg_match('/^[0-9\s]+$/', $trimmed)) {
+            return true;
+        }
+        if (!empty($nip)) {
+            $cleanNip = trim((string) $nip);
+            if ($cleanNip !== '' && ($trimmed === $cleanNip || $trimmed === "NIP {$cleanNip}")) {
+                return true;
+            }
+        }
+        if (in_array(strtolower($trimmed), ['pengguna', 'user', 'anonim', 'peserta', 'peserta umum'], true)) {
+            return true;
+        }
+        return false;
+    }
 
     /**
      * Generate or regenerate certificates for all (or specific) respondents in a kegiatan.
@@ -899,13 +972,14 @@ class KegiatanPegawaiController extends Controller
                 $nip = trim((string) ($kp->nip ?: ($isi['nip'] ?? $isi['nip_no_absen'] ?? '')));
 
                 try {
-                    // Update profil dari frontend / CMB jika nama kosong atau "-"
+                    // Update profil dari frontend / CMB jika nama belum valid atau masih berupa string NIP
                     if ($nip !== '' && $nip !== '-' && strtolower($nip) !== 'umum') {
                         $fallbackProfile = isset($frontendProfiles[$nip]) && is_array($frontendProfiles[$nip])
                             ? $frontendProfiles[$nip]
                             : null;
 
-                        if (empty($isi['nama_lengkap']) || $isi['nama_lengkap'] === '-') {
+                        $curName = $isi['nama_lengkap'] ?? '';
+                        if ($this->isInvalidOrNipName($curName, $nip)) {
                             $profile = $this->resolvePegawaiProfile($nip, $fallbackProfile);
                             if (!empty($profile['nama_lengkap'])) {
                                 $isi['nama_lengkap'] = $profile['nama_lengkap'];
@@ -921,6 +995,22 @@ class KegiatanPegawaiController extends Controller
                             }
                             $kp->isi_form = $isi;
                             $kp->save();
+
+                            // Sinkronkan juga ke matching KegiatanEvaluasiNarasumber jika ada
+                            KegiatanEvaluasiNarasumber::where('kegiatan_id', $kegiatan->id)
+                                ->where(function ($q) use ($nip) {
+                                    $q->where('nip', $nip)
+                                      ->orWhereRaw("(isi_form->>'nip_no_absen') = ?", [$nip]);
+                                })
+                                ->get()
+                                ->each(function ($eval) use ($isi, $nip) {
+                                    $evalIsi = is_array($eval->isi_form) ? $eval->isi_form : [];
+                                    if ($this->isInvalidOrNipName($evalIsi['nama_lengkap'] ?? '', $nip)) {
+                                        $evalIsi['nama_lengkap'] = $isi['nama_lengkap'];
+                                        $eval->isi_form = $evalIsi;
+                                        $eval->save();
+                                    }
+                                });
                         }
                     }
 

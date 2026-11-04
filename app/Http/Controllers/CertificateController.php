@@ -35,15 +35,43 @@ class CertificateController extends Controller
      */
     private function resolveKegiatanPegawai(string $identifier): ?KegiatanPegawai
     {
-        $kegiatanPegawai = KegiatanPegawai::query()->whereKey($identifier)->first();
+        $identifier = trim($identifier);
 
-        if ($kegiatanPegawai) {
-            return $kegiatanPegawai;
+        // 1. By Primary Key (UUID) hanya jika format valid UUID (mencegah error PostgreSQL 22P02)
+        if (\Illuminate\Support\Str::isUuid($identifier)) {
+            $kegiatanPegawai = KegiatanPegawai::query()->whereKey($identifier)->first();
+            if ($kegiatanPegawai) {
+                return $kegiatanPegawai;
+            }
         }
 
-        return KegiatanPegawai::query()
-            ->where('verification_token', '=', $identifier)
+        // 2. By cleaned ID if identifier has path/extension (e.g. "uuid.pdf" or "certificates/uuid.pdf")
+        $cleanId = basename($identifier, '.pdf');
+        if (\Illuminate\Support\Str::isUuid($cleanId)) {
+            $byCleanId = KegiatanPegawai::query()->whereKey($cleanId)->first();
+            if ($byCleanId) {
+                return $byCleanId;
+            }
+        }
+
+        // 3. By link_sertifikat
+        $byLink = KegiatanPegawai::query()
+            ->where('link_sertifikat', '=', $identifier)
+            ->orWhere('link_sertifikat', '=', "certificates/{$identifier}")
             ->first();
+        if ($byLink) {
+            return $byLink;
+        }
+
+        // 4. By nomor_sertifikat
+        $byNomor = KegiatanPegawai::query()
+            ->where('nomor_sertifikat', '=', $identifier)
+            ->first();
+        if ($byNomor) {
+            return $byNomor;
+        }
+
+        return null;
     }
 
     /**
