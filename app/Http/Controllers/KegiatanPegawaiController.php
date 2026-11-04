@@ -441,43 +441,45 @@ class KegiatanPegawaiController extends Controller
             $isi = is_array($kegiatanPegawai->isi_form) ? $kegiatanPegawai->isi_form : [];
             $nip = trim((string) ($kegiatanPegawai->nip ?: ($isi['nip'] ?? $isi['nip_no_absen'] ?? '')));
 
-            $curName = $isi['nama_lengkap'] ?? '';
-            if ($nip !== '' && $nip !== '-' && strtolower($nip) !== 'umum' && $this->isInvalidOrNipName($curName, $nip)) {
+            $curName = trim((string)($isi['nama_lengkap'] ?? ''));
+            if ($nip !== '' && $nip !== '-' && strtolower($nip) !== 'umum') {
                 $fallbackProfiles = is_array($request->pegawai_profiles) ? $request->pegawai_profiles : [];
                 $fallback = $fallbackProfiles[$nip] ?? null;
                 $profile = $this->resolvePegawaiProfile($nip, $fallback);
+                $officialName = !empty($profile['nama_lengkap']) ? trim($profile['nama_lengkap']) : null;
 
-                if (!empty($profile['nama_lengkap'])) {
-                    $isi['nama_lengkap'] = $profile['nama_lengkap'];
-                }
-                if (!empty($profile['jabatan']) && (empty($isi['jabatan']) || $isi['jabatan'] === '-')) {
-                    $isi['jabatan'] = $profile['jabatan'];
-                }
-                if (!empty($profile['unit_kerja']) && (empty($isi['unit_kerja']) || $isi['unit_kerja'] === '-')) {
-                    $isi['unit_kerja'] = $profile['unit_kerja'];
-                }
-                if (!empty($profile['status_pegawai']) && (empty($isi['status_pegawai']) || $isi['status_pegawai'] === '-')) {
-                    $isi['status_pegawai'] = $profile['status_pegawai'];
-                }
-                $kegiatanPegawai->isi_form = $isi;
-                $kegiatanPegawai->save();
+                // Selalu perbarui jika nama salah/NIP, atau berbeda dari nama resmi bergelar di master CMB
+                if ($officialName && ($this->isInvalidOrNipName($curName, $nip) || $curName !== $officialName)) {
+                    $isi['nama_lengkap'] = $officialName;
+                    if (!empty($profile['jabatan']) && (empty($isi['jabatan']) || $isi['jabatan'] === '-')) {
+                        $isi['jabatan'] = $profile['jabatan'];
+                    }
+                    if (!empty($profile['unit_kerja']) && (empty($isi['unit_kerja']) || $isi['unit_kerja'] === '-')) {
+                        $isi['unit_kerja'] = $profile['unit_kerja'];
+                    }
+                    if (!empty($profile['status_pegawai']) && (empty($isi['status_pegawai']) || $isi['status_pegawai'] === '-')) {
+                        $isi['status_pegawai'] = $profile['status_pegawai'];
+                    }
+                    $kegiatanPegawai->isi_form = $isi;
+                    $kegiatanPegawai->save();
 
-                // Sinkronkan juga ke data kegiatan_evaluasi_narasumber jika ada
-                if ($kegiatanPegawai->kegiatan_id) {
-                    KegiatanEvaluasiNarasumber::where('kegiatan_id', $kegiatanPegawai->kegiatan_id)
-                        ->where(function ($q) use ($nip) {
-                            $q->where('nip', $nip)
-                              ->orWhereRaw("(isi_form->>'nip_no_absen') = ?", [$nip]);
-                        })
-                        ->get()
-                        ->each(function ($eval) use ($isi, $nip) {
-                            $evalIsi = is_array($eval->isi_form) ? $eval->isi_form : [];
-                            if ($this->isInvalidOrNipName($evalIsi['nama_lengkap'] ?? '', $nip)) {
-                                $evalIsi['nama_lengkap'] = $isi['nama_lengkap'];
-                                $eval->isi_form = $evalIsi;
-                                $eval->save();
-                            }
-                        });
+                    // Sinkronkan juga ke data kegiatan_evaluasi_narasumber jika ada
+                    if ($kegiatanPegawai->kegiatan_id) {
+                        KegiatanEvaluasiNarasumber::where('kegiatan_id', $kegiatanPegawai->kegiatan_id)
+                            ->where(function ($q) use ($nip) {
+                                $q->where('nip', $nip)
+                                  ->orWhereRaw("(isi_form->>'nip_no_absen') = ?", [$nip]);
+                            })
+                            ->get()
+                            ->each(function ($eval) use ($officialName) {
+                                $evalIsi = is_array($eval->isi_form) ? $eval->isi_form : [];
+                                if (($evalIsi['nama_lengkap'] ?? '') !== $officialName) {
+                                    $evalIsi['nama_lengkap'] = $officialName;
+                                    $eval->isi_form = $evalIsi;
+                                    $eval->save();
+                                }
+                            });
+                    }
                 }
             }
 
@@ -796,16 +798,17 @@ class KegiatanPegawaiController extends Controller
                 if (is_array($p) && ! empty($p)) {
                     $json = isset($p['json']) && is_array($p['json']) ? $p['json'] : [];
 
-                    $rawName = $p['nama']
-                        ?? $p['name']
+                    // Prefer name from 'name' which usually already contains academic degree (gelar)
+                    $rawName = $p['name']
                         ?? $p['nama_lengkap']
                         ?? $p['full_name']
                         ?? $p['namaLengkap']
+                        ?? $p['nama']
                         ?? $json['nama']
                         ?? '';
 
-                    $gelarDepan    = trim((string) ($p['gelarDepan'] ?? $p['gelar_depan'] ?? $json['gelarDepan'] ?? ''));
-                    $gelarBelakang = trim((string) ($p['gelarBelakang'] ?? $p['gelar_belakang'] ?? $json['gelarBelakang'] ?? ''));
+                    $gelarDepan    = trim((string) ($p['gelarDepan'] ?? $p['gelar_depan'] ?? $json['gelarDepan'] ?? $json['gelarDepanProfesi'] ?? ''));
+                    $gelarBelakang = trim((string) ($p['gelarBelakang'] ?? $p['gelar_belakang'] ?? $json['gelarBelakang'] ?? $json['gelarBelakangProfesi'] ?? ''));
 
                     if ($rawName !== '') {
                         $formattedName = $this->formatPersonName((string) $rawName);
@@ -848,6 +851,19 @@ class KegiatanPegawaiController extends Controller
             }
         } catch (\Exception $e) {
             Log::warning("Gagal mengambil profil pegawai dari CMB API untuk NIP {$nip}: " . $e->getMessage());
+        }
+
+        // Cek juga fallback dari master pegawai CmbApiController jika nama masih kosong atau tidak bergelar
+        $map = \App\Http\Controllers\CmbApiController::getPegawaiMap();
+        if (isset($map[$nip])) {
+            $mapName = trim((string) ($map[$nip]['name'] ?? ''));
+            if ($mapName !== '') {
+                if (empty($result['nama_lengkap']) || (!str_contains($result['nama_lengkap'], ',') && str_contains($mapName, ','))) {
+                    $result['nama_lengkap'] = $mapName;
+                }
+            }
+            if (empty($result['jabatan'])) $result['jabatan'] = $map[$nip]['jabatan_name'] ?? '';
+            if (empty($result['unit_kerja'])) $result['unit_kerja'] = $map[$nip]['unit_organisasi_name'] ?? '';
         }
 
         return $result;
@@ -972,27 +988,35 @@ class KegiatanPegawaiController extends Controller
                 $nip = trim((string) ($kp->nip ?: ($isi['nip'] ?? $isi['nip_no_absen'] ?? '')));
 
                 try {
-                    // Update profil dari frontend / CMB jika nama belum valid atau masih berupa string NIP
+                    // Update profil dari frontend / CMB jika responden internal
                     if ($nip !== '' && $nip !== '-' && strtolower($nip) !== 'umum') {
                         $fallbackProfile = isset($frontendProfiles[$nip]) && is_array($frontendProfiles[$nip])
                             ? $frontendProfiles[$nip]
                             : null;
 
-                        $curName = $isi['nama_lengkap'] ?? '';
-                        if ($this->isInvalidOrNipName($curName, $nip)) {
-                            $profile = $this->resolvePegawaiProfile($nip, $fallbackProfile);
-                            if (!empty($profile['nama_lengkap'])) {
-                                $isi['nama_lengkap'] = $profile['nama_lengkap'];
-                            }
-                            if (!empty($profile['jabatan']) && (empty($isi['jabatan']) || $isi['jabatan'] === '-')) {
-                                $isi['jabatan'] = $profile['jabatan'];
-                            }
-                            if (!empty($profile['unit_kerja']) && (empty($isi['unit_kerja']) || $isi['unit_kerja'] === '-')) {
-                                $isi['unit_kerja'] = $profile['unit_kerja'];
-                            }
-                            if (!empty($profile['status_pegawai']) && (empty($isi['status_pegawai']) || $isi['status_pegawai'] === '-')) {
-                                $isi['status_pegawai'] = $profile['status_pegawai'];
-                            }
+                        $curName = trim((string)($isi['nama_lengkap'] ?? ''));
+                        $profile = $this->resolvePegawaiProfile($nip, $fallbackProfile);
+                        $officialName = !empty($profile['nama_lengkap']) ? trim($profile['nama_lengkap']) : null;
+
+                        $needsSave = false;
+                        if ($officialName && ($this->isInvalidOrNipName($curName, $nip) || $curName !== $officialName)) {
+                            $isi['nama_lengkap'] = $officialName;
+                            $needsSave = true;
+                        }
+                        if (!empty($profile['jabatan']) && (empty($isi['jabatan']) || $isi['jabatan'] === '-')) {
+                            $isi['jabatan'] = $profile['jabatan'];
+                            $needsSave = true;
+                        }
+                        if (!empty($profile['unit_kerja']) && (empty($isi['unit_kerja']) || $isi['unit_kerja'] === '-')) {
+                            $isi['unit_kerja'] = $profile['unit_kerja'];
+                            $needsSave = true;
+                        }
+                        if (!empty($profile['status_pegawai']) && (empty($isi['status_pegawai']) || $isi['status_pegawai'] === '-')) {
+                            $isi['status_pegawai'] = $profile['status_pegawai'];
+                            $needsSave = true;
+                        }
+
+                        if ($needsSave) {
                             $kp->isi_form = $isi;
                             $kp->save();
 
@@ -1003,10 +1027,10 @@ class KegiatanPegawaiController extends Controller
                                       ->orWhereRaw("(isi_form->>'nip_no_absen') = ?", [$nip]);
                                 })
                                 ->get()
-                                ->each(function ($eval) use ($isi, $nip) {
+                                ->each(function ($eval) use ($officialName) {
                                     $evalIsi = is_array($eval->isi_form) ? $eval->isi_form : [];
-                                    if ($this->isInvalidOrNipName($evalIsi['nama_lengkap'] ?? '', $nip)) {
-                                        $evalIsi['nama_lengkap'] = $isi['nama_lengkap'];
+                                    if (($evalIsi['nama_lengkap'] ?? '') !== $officialName) {
+                                        $evalIsi['nama_lengkap'] = $officialName;
                                         $eval->isi_form = $evalIsi;
                                         $eval->save();
                                     }

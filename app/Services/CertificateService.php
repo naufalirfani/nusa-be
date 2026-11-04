@@ -59,7 +59,8 @@ class CertificateService
         $nama            = $kegiatanPegawai->isi_form['nama_lengkap'] ?? '';
 
         $nipCandidate = trim((string) ($kegiatanPegawai->nip ?: ($kegiatanPegawai->isi_form['nip'] ?? $kegiatanPegawai->isi_form['nip_no_absen'] ?? '')));
-        if ($this->isInvalidOrNipName($nama, $nipCandidate) && $nipCandidate !== '' && $nipCandidate !== '-' && strtolower($nipCandidate) !== 'umum') {
+        if ($nipCandidate !== '' && $nipCandidate !== '-' && strtolower($nipCandidate) !== 'umum') {
+            $officialName = '';
             try {
                 $cmbController = app(\App\Http\Controllers\CmbApiController::class);
                 $cmbRequest    = new \Illuminate\Http\Request(['with_unit_parent' => 'true']);
@@ -69,9 +70,15 @@ class CertificateService
                     $p = $decoded['data']['data'] ?? $decoded['data'] ?? $decoded ?? null;
                     if (is_array($p) && !empty($p)) {
                         $json = isset($p['json']) && is_array($p['json']) ? $p['json'] : [];
-                        $rawName = $p['nama'] ?? $p['name'] ?? $p['nama_lengkap'] ?? $p['full_name'] ?? $p['namaLengkap'] ?? $json['nama'] ?? '';
-                        $gelarDepan = trim((string) ($p['gelarDepan'] ?? $p['gelar_depan'] ?? $json['gelarDepan'] ?? ''));
-                        $gelarBelakang = trim((string) ($p['gelarBelakang'] ?? $p['gelar_belakang'] ?? $json['gelarBelakang'] ?? ''));
+                        $rawName = $p['name']
+                            ?? $p['nama_lengkap']
+                            ?? $p['full_name']
+                            ?? $p['namaLengkap']
+                            ?? $p['nama']
+                            ?? $json['nama']
+                            ?? '';
+                        $gelarDepan    = trim((string) ($p['gelarDepan'] ?? $p['gelar_depan'] ?? $json['gelarDepan'] ?? $json['gelarDepanProfesi'] ?? ''));
+                        $gelarBelakang = trim((string) ($p['gelarBelakang'] ?? $p['gelar_belakang'] ?? $json['gelarBelakang'] ?? $json['gelarBelakangProfesi'] ?? ''));
                         if ($rawName !== '') {
                             $formattedName = $this->formatPersonName((string) $rawName);
                             if ($gelarDepan !== '' && !str_starts_with(strtolower($formattedName), strtolower($gelarDepan))) {
@@ -80,16 +87,32 @@ class CertificateService
                             if ($gelarBelakang !== '' && !str_ends_with(strtolower($formattedName), strtolower($gelarBelakang))) {
                                 $formattedName = "{$formattedName}, {$gelarBelakang}";
                             }
-                            $nama = trim($formattedName);
-                            $isi = is_array($kegiatanPegawai->isi_form) ? $kegiatanPegawai->isi_form : [];
-                            $isi['nama_lengkap'] = $nama;
-                            $kegiatanPegawai->isi_form = $isi;
-                            $kegiatanPegawai->save();
+                            $officialName = trim($formattedName);
                         }
                     }
                 }
             } catch (\Exception $e) {
                 \Illuminate\Support\Facades\Log::warning("CertificateService failed resolving name for NIP {$nipCandidate}: " . $e->getMessage());
+            }
+
+            // Fallback ke master getPegawaiMap jika kosong atau jika nama master memiliki gelar
+            $map = \App\Http\Controllers\CmbApiController::getPegawaiMap();
+            if (isset($map[$nipCandidate])) {
+                $mapName = trim((string) ($map[$nipCandidate]['name'] ?? ''));
+                if ($mapName !== '') {
+                    if (empty($officialName) || (!str_contains($officialName, ',') && str_contains($mapName, ','))) {
+                        $officialName = $mapName;
+                    }
+                }
+            }
+
+            // Jika nama resmi ditemukan dan berbeda (misal memiliki gelar resmi), perbarui data & sertifikat
+            if (!empty($officialName) && ($nama !== $officialName || $this->isInvalidOrNipName($nama, $nipCandidate))) {
+                $nama = $officialName;
+                $isi = is_array($kegiatanPegawai->isi_form) ? $kegiatanPegawai->isi_form : [];
+                $isi['nama_lengkap'] = $nama;
+                $kegiatanPegawai->isi_form = $isi;
+                $kegiatanPegawai->save();
             }
         }
 

@@ -309,7 +309,7 @@ class KegiatanEvaluasiNarasumberController extends Controller
                 $profile = $this->resolvePegawaiProfile($nip, $fallbackProfile);
                 $resolvedName = !empty($profile['nama_lengkap']) ? $profile['nama_lengkap'] : null;
 
-                // 1. Perbarui data di tabel kegiatan_evaluasi_narasumber jika nama_lengkap masih salah / berupa NIP
+                // 1. Perbarui data di tabel kegiatan_evaluasi_narasumber jika berbeda dari nama resmi bergelar
                 if ($resolvedName) {
                     KegiatanEvaluasiNarasumber::where('kegiatan_id', $kegiatan->id)
                         ->where(function ($q) use ($nip) {
@@ -319,8 +319,8 @@ class KegiatanEvaluasiNarasumberController extends Controller
                         ->get()
                         ->each(function ($eval) use ($resolvedName, $nip) {
                             $evalIsi = is_array($eval->isi_form) ? $eval->isi_form : [];
-                            $cName = $evalIsi['nama_lengkap'] ?? '';
-                            if ($this->isInvalidOrNipName($cName, $nip)) {
+                            $cName = trim((string)($evalIsi['nama_lengkap'] ?? ''));
+                            if ($cName !== $resolvedName || $this->isInvalidOrNipName($cName, $nip)) {
                                 $evalIsi['nama_lengkap'] = $resolvedName;
                                 $eval->isi_form = $evalIsi;
                                 $eval->save();
@@ -355,14 +355,11 @@ class KegiatanEvaluasiNarasumberController extends Controller
                     $existingIsiForm = is_array($kegiatanPegawai->isi_form) ? $kegiatanPegawai->isi_form : [];
                     $mergedIsiForm   = array_merge($evalIsiForm, $existingIsiForm);
 
-                    $existingName = $existingIsiForm['nama_lengkap'] ?? '';
-                    if ($this->isInvalidOrNipName($existingName, $nip)) {
-                        $mergedIsiForm['nama_lengkap'] = $resolvedName ?: ($evalIsiForm['nama_lengkap'] ?? $nip);
+                    $existingName = trim((string)($existingIsiForm['nama_lengkap'] ?? ''));
+                    if ($resolvedName && ($this->isInvalidOrNipName($existingName, $nip) || $existingName !== $resolvedName)) {
+                        $mergedIsiForm['nama_lengkap'] = $resolvedName;
                     } else {
-                        $mergedIsiForm['nama_lengkap'] = $existingName;
-                    }
-                    if ($this->isInvalidOrNipName($mergedIsiForm['nama_lengkap'] ?? '', $nip)) {
-                        $mergedIsiForm['nama_lengkap'] = $resolvedName ?: $nip;
+                        $mergedIsiForm['nama_lengkap'] = $existingName ?: ($resolvedName ?: ($evalIsiForm['nama_lengkap'] ?? $nip));
                     }
 
                     $mergedIsiForm['nip_no_absen'] = (! empty($existingIsiForm['nip_no_absen']) && $existingIsiForm['nip_no_absen'] !== '-')
@@ -384,14 +381,11 @@ class KegiatanEvaluasiNarasumberController extends Controller
                     $isUpdate = true;
                 } else {
                     $newIsiForm = $evalIsiForm;
-                    $evalName = $evalIsiForm['nama_lengkap'] ?? '';
-                    if ($this->isInvalidOrNipName($evalName, $nip)) {
-                        $newIsiForm['nama_lengkap'] = $resolvedName ?: $nip;
+                    $evalName = trim((string)($evalIsiForm['nama_lengkap'] ?? ''));
+                    if ($resolvedName && ($this->isInvalidOrNipName($evalName, $nip) || $evalName !== $resolvedName)) {
+                        $newIsiForm['nama_lengkap'] = $resolvedName;
                     } else {
-                        $newIsiForm['nama_lengkap'] = $evalName;
-                    }
-                    if ($this->isInvalidOrNipName($newIsiForm['nama_lengkap'] ?? '', $nip)) {
-                        $newIsiForm['nama_lengkap'] = $resolvedName ?: $nip;
+                        $newIsiForm['nama_lengkap'] = $evalName ?: ($resolvedName ?: $nip);
                     }
 
                     $newIsiForm['nip_no_absen']   = $nip;
@@ -476,16 +470,17 @@ class KegiatanEvaluasiNarasumberController extends Controller
                 if (is_array($p) && ! empty($p)) {
                     $json = isset($p['json']) && is_array($p['json']) ? $p['json'] : [];
 
-                    $rawName = $p['nama']
-                        ?? $p['name']
+                    // Prefer name from 'name' which usually already contains academic degree (gelar)
+                    $rawName = $p['name']
                         ?? $p['nama_lengkap']
                         ?? $p['full_name']
                         ?? $p['namaLengkap']
+                        ?? $p['nama']
                         ?? $json['nama']
                         ?? '';
 
-                    $gelarDepan    = trim((string) ($p['gelarDepan'] ?? $p['gelar_depan'] ?? $json['gelarDepan'] ?? ''));
-                    $gelarBelakang = trim((string) ($p['gelarBelakang'] ?? $p['gelar_belakang'] ?? $json['gelarBelakang'] ?? ''));
+                    $gelarDepan    = trim((string) ($p['gelarDepan'] ?? $p['gelar_depan'] ?? $json['gelarDepan'] ?? $json['gelarDepanProfesi'] ?? ''));
+                    $gelarBelakang = trim((string) ($p['gelarBelakang'] ?? $p['gelar_belakang'] ?? $json['gelarBelakang'] ?? $json['gelarBelakangProfesi'] ?? ''));
 
                     if ($rawName !== '') {
                         $formattedName = $this->formatPersonName((string) $rawName);
@@ -528,6 +523,19 @@ class KegiatanEvaluasiNarasumberController extends Controller
             }
         } catch (\Exception $e) {
             Log::warning("Gagal mengambil profil pegawai dari CMB API untuk NIP {$nip}: " . $e->getMessage());
+        }
+
+        // Cek juga fallback dari master pegawai CmbApiController jika nama masih kosong atau tidak bergelar
+        $map = CmbApiController::getPegawaiMap();
+        if (isset($map[$nip])) {
+            $mapName = trim((string) ($map[$nip]['name'] ?? ''));
+            if ($mapName !== '') {
+                if (empty($result['nama_lengkap']) || (!str_contains($result['nama_lengkap'], ',') && str_contains($mapName, ','))) {
+                    $result['nama_lengkap'] = $mapName;
+                }
+            }
+            if (empty($result['jabatan'])) $result['jabatan'] = $map[$nip]['jabatan_name'] ?? '';
+            if (empty($result['unit_kerja'])) $result['unit_kerja'] = $map[$nip]['unit_organisasi_name'] ?? '';
         }
 
         return $result;

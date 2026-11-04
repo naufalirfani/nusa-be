@@ -14,11 +14,13 @@ class CmbApiController extends Controller
      * Cache key for list of all internal pegawai NIPs
      */
     public const CACHE_KEY_PEGAWAI_NIPS = 'cmb_all_pegawai_nips';
+    public const CACHE_KEY_PEGAWAI_MAP  = 'cmb_all_pegawai_map';
 
     /**
      * Memoized NIPs for current request lifecycle
      */
     private static ?array $memoizedPegawaiNips = null;
+    private static ?array $memoizedPegawaiMap  = null;
 
     private string $baseUrl;
     private string $apiToken;
@@ -87,6 +89,78 @@ class CmbApiController extends Controller
 
         self::$memoizedPegawaiNips = [];
         return self::$memoizedPegawaiNips;
+    }
+
+    /**
+     * Get associative map of all pegawai keyed by NIP from CMB API with caching.
+     *
+     * @param bool $fresh If true, bypass cache and fetch fresh from API
+     * @return array<string, array>
+     */
+    public static function getPegawaiMap(bool $fresh = false): array
+    {
+        if (!$fresh && self::$memoizedPegawaiMap !== null) {
+            return self::$memoizedPegawaiMap;
+        }
+
+        if ($fresh) {
+            Cache::forget(self::CACHE_KEY_PEGAWAI_MAP);
+        }
+
+        $cached = Cache::get(self::CACHE_KEY_PEGAWAI_MAP);
+        if (is_array($cached) && !empty($cached)) {
+            self::$memoizedPegawaiMap = $cached;
+            return self::$memoizedPegawaiMap;
+        }
+
+        try {
+            $controller = app(self::class);
+            $request = new Request([
+                'with_pagination' => 'false',
+                'include_json'    => 'false',
+                'per_page'        => 5000,
+                'status'          => '',
+            ]);
+
+            $response = $controller->getPegawai($request);
+            if ($response->getStatusCode() === 200) {
+                $content = json_decode($response->getContent(), true);
+                $items = $content['data']['data'] ?? $content['data'] ?? [];
+
+                $map = [];
+                $nips = [];
+                foreach ($items as $item) {
+                    $nipVal = trim((string)($item['nip'] ?? ''));
+                    if ($nipVal !== '') {
+                        $map[$nipVal] = [
+                            'nip'                  => $nipVal,
+                            'name'                 => trim((string)($item['name'] ?? $item['nama'] ?? '')),
+                            'jabatan_name'         => trim((string)($item['jabatan_name'] ?? $item['jabatan'] ?? '')),
+                            'unit_organisasi_name' => trim((string)($item['unit_organisasi_name'] ?? $item['unit_kerja'] ?? '')),
+                            'status'               => trim((string)($item['status'] ?? 'ACTIVE')),
+                        ];
+                        $nips[] = $nipVal;
+                    }
+                }
+
+                if (!empty($map)) {
+                    Cache::put(self::CACHE_KEY_PEGAWAI_MAP, $map, 3600);
+                    self::$memoizedPegawaiMap = $map;
+
+                    // Also cache NIPs list
+                    $uniqueNips = array_values(array_unique($nips));
+                    Cache::put(self::CACHE_KEY_PEGAWAI_NIPS, $uniqueNips, 3600);
+                    self::$memoizedPegawaiNips = $uniqueNips;
+
+                    return self::$memoizedPegawaiMap;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::error('Error fetching pegawai map in getPegawaiMap: ' . $e->getMessage());
+        }
+
+        self::$memoizedPegawaiMap = [];
+        return self::$memoizedPegawaiMap;
     }
 
     /**
